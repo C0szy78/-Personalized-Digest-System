@@ -1,0 +1,821 @@
+"""Main Streamlit application for the Personalized Digest System."""
+import streamlit as st
+import json
+from datetime import datetime
+from database import (
+    init_db, get_db, seed_default_interests,
+    Member, Interest, Document, Digest
+)
+from llm_service import LLMService
+from wordpress_fetcher import WordPressFetcher
+
+# Initialize database
+init_db()
+
+# Page config
+st.set_page_config(
+    page_title="Personalized Digest System",
+    page_icon="📰",
+    layout="wide"
+)
+
+# Initialize LLM service
+@st.cache_resource
+def get_llm_service():
+    return LLMService()
+
+llm_service = get_llm_service()
+
+# Initialize session state
+if 'current_member' not in st.session_state:
+    st.session_state.current_member = None
+if 'fetched_posts' not in st.session_state:
+    st.session_state.fetched_posts = None
+if 'processing_started' not in st.session_state:
+    st.session_state.processing_started = False
+
+def main():
+    st.title("📰 Personalized Digest System")
+    st.markdown("---")
+
+    # Sidebar for navigation
+    with st.sidebar:
+        st.header("Navigation")
+        page = st.radio(
+            "Select Page",
+            ["Home", "Member Onboarding", "Upload Document", "Fetch WordPress Posts", "View Digests", "Manage Interests"]
+        )
+
+        st.markdown("---")
+
+        # Current member display
+        if st.session_state.current_member:
+            st.success(f"👤 Logged in as: {st.session_state.current_member['name']}")
+            if st.button("Logout"):
+                st.session_state.current_member = None
+                st.rerun()
+        else:
+            st.info("👤 Not logged in")
+
+    # Route to pages
+    if page == "Home":
+        show_home()
+    elif page == "Member Onboarding":
+        show_member_onboarding()
+    elif page == "Upload Document":
+        show_upload_document()
+    elif page == "Fetch WordPress Posts":
+        show_fetch_wordpress_posts()
+    elif page == "View Digests":
+        show_view_digests()
+    elif page == "Manage Interests":
+        show_manage_interests()
+
+
+def show_home():
+    st.header("Welcome to the Personalized Digest System")
+
+    col1, col2 = st.columns(2)
+
+    with col1:
+        st.subheader("🎯 System Features")
+        st.markdown("""
+        - **Member Onboarding**: Register and select your interest tags
+        - **Document Upload**: Upload articles, forums, or documents
+        - **AI-Powered Analysis**: LLM extracts relevant topics from content
+        - **Personalized Digests**: Get summaries tailored to your interests
+        - **Interest Management**: Update your preferences anytime
+        """)
+
+    with col2:
+        st.subheader("📊 System Stats")
+        db = get_db()
+        try:
+            member_count = db.query(Member).count()
+            document_count = db.query(Document).count()
+            digest_count = db.query(Digest).count()
+
+            st.metric("Total Members", member_count)
+            st.metric("Documents Processed", document_count)
+            st.metric("Digests Generated", digest_count)
+        finally:
+            db.close()
+
+    st.markdown("---")
+    st.info("👈 Use the sidebar to navigate through different features")
+
+
+def show_member_onboarding():
+    st.header("👤 Member Onboarding")
+
+    # Check if already logged in
+    if st.session_state.current_member:
+        st.warning(f"You are already logged in as {st.session_state.current_member['name']}")
+        st.info("Logout from the sidebar to create a new account or login as different member")
+        return
+
+    tab1, tab2 = st.tabs(["Register New Member", "Login"])
+
+    with tab1:
+        st.subheader("Create New Account")
+
+        with st.form("registration_form"):
+            name = st.text_input("Full Name*")
+            email = st.text_input("Email*")
+
+            st.markdown("### Select Your Interests")
+            st.info("Choose topics you're interested in. Your digests will be personalized based on these selections.")
+
+            db = get_db()
+            try:
+                # Seed default interests if not exists
+                seed_default_interests(db)
+
+                # Get all interests
+                all_interests = db.query(Interest).all()
+
+                # Create checkboxes for interests
+                selected_interests = []
+                cols = st.columns(2)
+                for idx, interest in enumerate(all_interests):
+                    with cols[idx % 2]:
+                        if st.checkbox(
+                            f"{interest.name}",
+                            help=interest.description,
+                            key=f"reg_interest_{interest.id}"
+                        ):
+                            selected_interests.append(interest.id)
+            finally:
+                db.close()
+
+            submitted = st.form_submit_button("Register")
+
+            if submitted:
+                if not name or not email:
+                    st.error("Please fill in all required fields")
+                elif not selected_interests:
+                    st.error("Please select at least one interest")
+                else:
+                    db = get_db()
+                    try:
+                        # Check if email exists
+                        existing = db.query(Member).filter_by(email=email).first()
+                        if existing:
+                            st.error("Email already registered!")
+                        else:
+                            # Create new member
+                            member = Member(name=name, email=email)
+
+                            # Add selected interests
+                            for interest_id in selected_interests:
+                                interest = db.query(Interest).get(interest_id)
+                                if interest:
+                                    member.interests.append(interest)
+
+                            db.add(member)
+                            db.commit()
+
+                            st.success(f"✅ Registration successful! Welcome, {name}!")
+                            st.balloons()
+
+                            # Auto login
+                            st.session_state.current_member = {
+                                'id': member.id,
+                                'name': member.name,
+                                'email': member.email
+                            }
+                            st.rerun()
+                    finally:
+                        db.close()
+
+    with tab2:
+        st.subheader("Login to Existing Account")
+
+        db = get_db()
+        try:
+            members = db.query(Member).all()
+
+            if not members:
+                st.info("No members registered yet. Please register first!")
+            else:
+                member_options = {f"{m.name} ({m.email})": m for m in members}
+                selected_member = st.selectbox("Select Your Account", list(member_options.keys()))
+
+                if st.button("Login"):
+                    member = member_options[selected_member]
+                    st.session_state.current_member = {
+                        'id': member.id,
+                        'name': member.name,
+                        'email': member.email
+                    }
+                    st.success(f"Welcome back, {member.name}!")
+                    st.rerun()
+        finally:
+            db.close()
+
+
+def show_upload_document():
+    st.header("📄 Upload Document")
+
+    if not st.session_state.current_member:
+        st.warning("Please login or register first to upload documents")
+        return
+
+    st.info("📝 Upload articles, forum posts, or documents. The system will use **LLM Task #1** to extract relevant interest tags.")
+
+    with st.form("upload_form"):
+        title = st.text_input("Document Title*")
+        source_type = st.selectbox("Source Type", ["Article", "Forum", "Document"])
+        content = st.text_area("Content*", height=300, placeholder="Paste the full content here...")
+
+        submitted = st.form_submit_button("Upload & Process")
+
+        if submitted:
+            if not title or not content:
+                st.error("Please fill in all required fields")
+            else:
+                with st.spinner("Processing document... Using LLM to extract interest tags..."):
+                    db = get_db()
+                    try:
+                        # Get available interest tags
+                        all_interests = db.query(Interest).all()
+                        available_tags = [i.name for i in all_interests]
+
+                        # LLM Task 1: Extract interest tags from content
+                        st.write("🤖 **LLM Task #1: Extracting Interest Tags**")
+                        extraction_result = llm_service.extract_interest_tags(content, available_tags)
+
+                        st.json(extraction_result)
+
+                        # Create document
+                        document = Document(
+                            title=title,
+                            content=content,
+                            source_type=source_type.lower(),
+                            extracted_tags=json.dumps(extraction_result)
+                        )
+                        db.add(document)
+                        db.commit()
+
+                        st.success("✅ Document uploaded and processed successfully!")
+
+                        # Show extracted information
+                        st.subheader("Extracted Information")
+                        st.write(f"**Primary Topic:** {extraction_result.get('primary_topic', 'N/A')}")
+                        st.write(f"**Relevant Tags:** {', '.join(extraction_result.get('tags', []))}")
+                        st.write(f"**Confidence:** {extraction_result.get('confidence', 'N/A')}")
+
+                        # Ask if user wants to generate digests
+                        if st.button("Generate Digests for All Members"):
+                            generate_all_digests(db, document, extraction_result)
+                    finally:
+                        db.close()
+
+
+def show_fetch_wordpress_posts():
+    st.header("🌐 Fetch WordPress Posts")
+
+    if not st.session_state.current_member:
+        st.warning("Please login or register first to fetch WordPress posts")
+        return
+
+    st.info("📡 Fetch posts from WordPress sites via REST API and automatically process them with AI")
+
+    # WordPress URL input
+    wordpress_url = st.text_input(
+        "WordPress Site URL",
+        value="https://domain1.badev.tools",
+        help="Enter the base URL of the WordPress site"
+    )
+
+    # Authentication section
+    with st.expander("🔐 Authentication (Optional - for private posts)", expanded=False):
+        st.write("**WordPress Application Password Authentication**")
+        st.info("""
+        To fetch private/protected posts, you need:
+        1. **Username**: Your WordPress username
+        2. **Application Password**: Generate from WordPress Dashboard → Users → Profile → Application Passwords
+
+        Leave blank for public posts only.
+        """)
+
+        col1, col2 = st.columns(2)
+        with col1:
+            wp_username = st.text_input("WordPress Username", value="", help="Your WordPress username")
+        with col2:
+            wp_app_password = st.text_input(
+                "Application Password",
+                value="",
+                type="password",
+                help="WordPress Application Password (not your regular password)"
+            )
+
+    col1, col2 = st.columns(2)
+    with col1:
+        num_posts = st.number_input("Number of Posts to Fetch", min_value=1, max_value=20, value=5)
+    with col2:
+        page_num = st.number_input("Page Number", min_value=1, value=1)
+
+    if st.button("🔍 Fetch Posts", type="primary"):
+        with st.spinner(f"Fetching posts from {wordpress_url}..."):
+            try:
+                # Initialize fetcher with or without authentication
+                if wp_username and wp_app_password:
+                    st.success(f"✅ Using authenticated access as: {wp_username}")
+                    fetcher = WordPressFetcher(wordpress_url, wp_username, wp_app_password)
+                else:
+                    st.info("ℹ️ Using public access (no authentication)")
+                    fetcher = WordPressFetcher(wordpress_url)
+
+                posts = fetcher.get_posts_with_content(per_page=num_posts, page=page_num)
+
+                if not posts:
+                    st.error("No posts found or failed to fetch posts. Please check the URL.")
+                    st.session_state.fetched_posts = None
+                    return
+
+                # Store posts in session state
+                st.session_state.fetched_posts = posts
+                st.success(f"✅ Fetched {len(posts)} posts successfully!")
+
+            except Exception as e:
+                st.error(f"Error fetching posts: {str(e)}")
+                st.session_state.fetched_posts = None
+
+    # Display fetched posts if they exist
+    if st.session_state.fetched_posts:
+        posts = st.session_state.fetched_posts
+
+        st.subheader("📄 Fetched Posts")
+
+        for idx, post in enumerate(posts):
+            with st.expander(f"{idx + 1}. {post['title']}", expanded=False):
+                col1, col2 = st.columns([2, 1])
+
+                with col1:
+                    st.write(f"**Date:** {post['date']}")
+                    st.write(f"**Link:** {post['link']}")
+                    st.write(f"**Content Length:** {post.get('content_length', 0)} characters")
+
+                with col2:
+                    if st.button(f"📥 Process This Post", key=f"process_{idx}"):
+                        st.session_state.processing_started = True
+                        st.session_state.single_post_to_process = idx
+
+                # Show preview of content
+                if post.get('scraped_content'):
+                    preview = post['scraped_content'][:500] + "..." if len(post['scraped_content']) > 500 else post['scraped_content']
+                    st.text_area("Content Preview", preview, height=150, key=f"preview_{idx}")
+
+        # Bulk process option
+        st.markdown("---")
+        st.info("👆 Click 'Process This Post' for individual posts OR click below to process all at once:")
+        if st.button("🚀 Process All Posts with AI", type="primary", key="process_all_btn"):
+            st.session_state.processing_started = True
+            st.session_state.single_post_to_process = None
+
+    # Process posts if processing was triggered
+    if st.session_state.processing_started and st.session_state.fetched_posts:
+        st.write("### 🤖 AI Processing Started...")
+
+        if st.session_state.get('single_post_to_process') is not None:
+            # Process single post
+            idx = st.session_state.single_post_to_process
+            process_wordpress_post(st.session_state.fetched_posts[idx])
+        else:
+            # Process all posts
+            process_all_wordpress_posts(st.session_state.fetched_posts)
+
+        # Reset processing flag
+        st.session_state.processing_started = False
+        st.session_state.single_post_to_process = None
+
+
+def process_wordpress_post(post):
+    """Process a single WordPress post through the AI system."""
+    with st.spinner(f"Processing '{post['title']}'..."):
+        db = get_db()
+        try:
+            # Get available interest tags
+            all_interests = db.query(Interest).all()
+            available_tags = [i.name for i in all_interests]
+
+            content = post.get('scraped_content', '')
+
+            if not content:
+                st.error("No content available for this post")
+                return
+
+            # LLM Task 1: Extract interest tags
+            st.write("🤖 **LLM Task #1: Extracting Interest Tags**")
+            extraction_result = llm_service.extract_interest_tags(content, available_tags)
+            st.json(extraction_result)
+
+            # Create document
+            document = Document(
+                title=post['title'],
+                content=content,
+                source_type='wordpress',
+                extracted_tags=json.dumps(extraction_result)
+            )
+            db.add(document)
+            db.commit()
+
+            st.success("✅ Post processed and saved!")
+
+            # Show extracted information
+            st.write(f"**Primary Topic:** {extraction_result.get('primary_topic', 'N/A')}")
+            st.write(f"**Relevant Tags:** {', '.join(extraction_result.get('tags', []))}")
+
+            # Generate digests
+            generate_all_digests(db, document, extraction_result)
+
+        finally:
+            db.close()
+
+
+def process_all_wordpress_posts(posts):
+    """Process all fetched WordPress posts."""
+    db = get_db()
+
+    # Get members count
+    members = db.query(Member).all()
+    member_count = len(members)
+
+    if member_count == 0:
+        st.error("⚠️ No members found! Please register members first to generate digests.")
+        st.write("💡 Go to 'Member Onboarding' page to register first!")
+        db.close()
+        return
+
+    try:
+        # Get available interest tags
+        all_interests = db.query(Interest).all()
+        available_tags = [i.name for i in all_interests]
+
+        progress_bar = st.progress(0)
+        status_text = st.empty()
+
+        # Store results for display
+        results = []
+
+        for idx, post in enumerate(posts):
+            status_text.text(f"📄 Processing {idx + 1}/{len(posts)}: {post['title']}")
+
+            st.write(f"Title: {post['title']}")
+
+            content = post.get('scraped_content', '')
+
+            st.write(f"📝 Content length: {len(content)} characters")
+
+            if not content:
+                st.warning(f"⚠️ Skipping '{post['title']}' - No content available")
+                continue
+
+            # LLM Task 1: Extract interest tags
+            with st.expander(f"🔍 Post {idx + 1}: {post['title']}", expanded=True):
+                st.write("**🤖 LLM Task #1: Extracting Interest Tags**")
+                st.write(f"Available tags for extraction: {', '.join(available_tags)}")
+
+                try:
+                    st.write("⏳ Calling LLM service...")
+                    extraction_result = llm_service.extract_interest_tags(content, available_tags)
+                    st.write("✅ LLM responded successfully!")
+
+                    # Display extraction results
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        st.write(f"**Primary Topic:** {extraction_result.get('primary_topic', 'N/A')}")
+                        st.write(f"**Confidence:** {extraction_result.get('confidence', 'N/A')}")
+                    with col2:
+                        st.write(f"**Extracted Tags:** {', '.join(extraction_result.get('tags', []))}")
+
+                    st.json(extraction_result)
+                except Exception as e:
+                    st.error(f"❌ Error in tag extraction: {str(e)}")
+                    import traceback
+                    st.code(traceback.format_exc())
+                    continue
+
+            # Create document
+            try:
+                document = Document(
+                    title=post['title'],
+                    content=content,
+                    source_type='wordpress',
+                    extracted_tags=json.dumps(extraction_result)
+                )
+                db.add(document)
+                db.commit()
+            except Exception as e:
+                st.error(f"❌ Error saving document: {str(e)}")
+                import traceback
+                st.code(traceback.format_exc())
+                continue
+
+            # Generate digests for this document
+            try:
+                digest_count = generate_all_digests(db, document, extraction_result)
+                st.write(f"✅ Generated {digest_count} digests for this document")
+            except Exception as e:
+                st.error(f"❌ Error generating digests: {str(e)}")
+                import traceback
+                st.code(traceback.format_exc())
+                continue
+
+            results.append({
+                'title': post['title'],
+                'tags': extraction_result.get('tags', []),
+                'primary_topic': extraction_result.get('primary_topic', 'N/A'),
+                'digests_created': digest_count
+            })
+
+            progress_bar.progress((idx + 1) / len(posts))
+            st.write("---")
+
+        status_text.empty()
+        progress_bar.empty()
+
+        # Show summary
+        st.success(f"✅ Successfully processed {len(results)} posts!")
+        st.balloons()
+
+        # Display summary table
+        st.subheader("📊 Processing Summary")
+        for idx, result in enumerate(results, 1):
+            with st.expander(f"✅ {idx}. {result['title']}", expanded=False):
+                st.write(f"**Primary Topic:** {result['primary_topic']}")
+                st.write(f"**Tags:** {', '.join(result['tags'])}")
+                st.write(f"**Digests Created:** {result['digests_created']}")
+
+        st.info(f"💡 Go to **View Digests** page to see your personalized summaries!")
+
+    finally:
+        db.close()
+
+
+def generate_all_digests(db, document, extraction_result):
+    """Generate personalized digests for all members. Returns count of digests created."""
+    st.write("🔍 **DEBUG: Entered generate_all_digests function**")
+
+    try:
+        members = db.query(Member).all()
+
+        st.write(f"📊 Found {len(members)} members for digest generation")
+
+        if not members:
+            st.warning("⚠️ No members found! Please register members first.")
+            return 0
+
+        st.info(f"Generating digests for {len(members)} members...")
+
+        document_tags = extraction_result.get('tags', [])
+
+        # Show digest generation details
+        digest_details = []
+
+        for idx, member in enumerate(members):
+            try:
+                member_interest_names = [i.name for i in member.interests]
+
+                # Calculate relevance score
+                matching_tags = set(member_interest_names) & set(document_tags)
+                relevance_score = len(matching_tags) * 10 + len(member_interest_names)
+
+                # Generate personalized digest using LLM Task 2
+                summary = llm_service.generate_personalized_digest(
+                    content=document.content,
+                    title=document.title,
+                    member_interests=member_interest_names,
+                    document_tags=document_tags
+                )
+
+                # Create digest
+                digest = Digest(
+                    member_id=member.id,
+                    document_id=document.id,
+                    summary=summary,
+                    relevance_score=relevance_score,
+                    status='draft'
+                )
+                db.add(digest)
+
+                digest_details.append({
+                    'member': member.name,
+                    'interests': member_interest_names,
+                    'matching_tags': list(matching_tags),
+                    'relevance_score': relevance_score
+                })
+
+            except Exception as e:
+                st.error(f"❌ Error creating digest for {member.name}: {str(e)}")
+                import traceback
+                st.code(traceback.format_exc())
+        db.commit()
+
+        # Display digest generation summary
+        with st.expander("📋 View Digest Details", expanded=True):
+            for detail in digest_details:
+                st.write(f"**{detail['member']}**: Relevance {detail['relevance_score']}/100 | "
+                        f"Matching: {', '.join(detail['matching_tags']) if detail['matching_tags'] else 'None'}")
+
+        return len(digest_details)
+
+    except Exception as e:
+        st.error(f"❌ Critical error in generate_all_digests: {str(e)}")
+        import traceback
+        st.code(traceback.format_exc())
+        return 0
+
+
+def show_view_digests():
+    if not st.session_state.current_member:
+        st.warning("Please login or register first to view digests")
+        return
+
+    db = get_db()
+    try:
+        member_id = st.session_state.current_member['id']
+        member = db.query(Member).get(member_id)
+
+        # Show member interests
+        st.subheader("Your Interests")
+        interest_names = [i.name for i in member.interests]
+        st.write(", ".join(interest_names) if interest_names else "No interests selected")
+
+        # Show all processed documents with their AI-extracted tags
+        st.markdown("---")
+        st.subheader("📚 All Processed Documents")
+        all_documents = db.query(Document).order_by(Document.uploaded_at.desc()).limit(10).all()
+
+        if all_documents:
+            st.success(f"Found {len(all_documents)} processed documents")
+            for doc in all_documents:
+                try:
+                    tags_data = json.loads(doc.extracted_tags)
+                    extracted_tags = tags_data.get('tags', [])
+                    primary_topic = tags_data.get('primary_topic', 'N/A')
+
+                    st.write(f"**{doc.title}** ({doc.source_type})")
+                    st.write(f"   🏷️ Tags: {', '.join(extracted_tags)}")
+                    st.write(f"   📌 Topic: {primary_topic}")
+
+                    # Check digests for this document
+                    doc_digests = db.query(Digest).filter_by(document_id=doc.id).all()
+                    st.write(f"   📊 Digests created: {len(doc_digests)}")
+                    st.write("")
+                except Exception as e:
+                    st.write(f"**{doc.title}** ({doc.source_type}) - Error: {e}")
+        else:
+            st.warning("No documents found. Please fetch and process WordPress posts first.")
+
+        st.markdown("---")
+
+        # Get digests for this member
+        digests = db.query(Digest).filter_by(member_id=member_id).order_by(
+            Digest.relevance_score.desc(),
+            Digest.created_at.desc()
+        ).all()
+
+        if not digests:
+            st.info("No digests available yet. Upload some documents to get started!")
+            return
+
+        st.subheader(f"Your Digests ({len(digests)})")
+
+        # Filter options
+        col1, col2 = st.columns(2)
+        with col1:
+            status_filter = st.selectbox("Filter by Status", ["All", "Draft", "Published"])
+        with col2:
+            sort_by = st.selectbox("Sort by", ["Relevance (High to Low)", "Date (Newest First)"])
+
+        # Apply filters
+        filtered_digests = digests
+        if status_filter != "All":
+            filtered_digests = [d for d in digests if d.status == status_filter.lower()]
+
+        # Display digests
+        for digest in filtered_digests:
+            with st.expander(
+                f"📄 {digest.document.title} - Relevance: {digest.relevance_score}/100",
+                expanded=False
+            ):
+                # Document info
+                col1, col2, col3 = st.columns(3)
+                with col1:
+                    st.write(f"**Source:** {digest.document.source_type.title()}")
+                with col2:
+                    st.write(f"**Status:** {digest.status.title()}")
+                with col3:
+                    st.write(f"**Created:** {digest.created_at.strftime('%Y-%m-%d')}")
+
+                # Show extracted tags
+                try:
+                    tags_data = json.loads(digest.document.extracted_tags)
+                    doc_tags = tags_data.get('tags', [])
+                    matching = set(interest_names) & set(doc_tags)
+
+                    st.write(f"**Document Tags:** {', '.join(doc_tags)}")
+                    if matching:
+                        st.write(f"**Matching Your Interests:** ✅ {', '.join(matching)}")
+                except:
+                    pass
+
+                st.markdown("---")
+
+                # Personalized summary
+                st.markdown("### 📝 Your Personalized Summary")
+                st.write(digest.summary)
+
+                # Actions
+                col1, col2, col3 = st.columns(3)
+                with col1:
+                    if digest.status == 'draft':
+                        if st.button(f"✅ Publish", key=f"publish_{digest.id}"):
+                            digest.status = 'published'
+                            db.commit()
+                            st.success("Published!")
+                            st.rerun()
+                with col2:
+                    if st.button(f"📖 View Full Document", key=f"view_{digest.id}"):
+                        st.text_area(
+                            "Full Content",
+                            digest.document.content,
+                            height=300,
+                            key=f"content_{digest.id}"
+                        )
+    finally:
+        db.close()
+
+
+def show_manage_interests():
+    st.header("🏷️ Manage Your Interests")
+
+    if not st.session_state.current_member:
+        st.warning("Please login or register first to manage interests")
+        return
+
+    db = get_db()
+    try:
+        member_id = st.session_state.current_member['id']
+        member = db.query(Member).get(member_id)
+        all_interests = db.query(Interest).all()
+
+        st.info("✏️ Update your interest preferences anytime. Your future digests will be adjusted accordingly.")
+
+        current_interest_ids = [i.id for i in member.interests]
+
+        st.subheader("Select Your Interests")
+
+        # Create checkboxes
+        new_selections = []
+        cols = st.columns(2)
+        for idx, interest in enumerate(all_interests):
+            with cols[idx % 2]:
+                is_selected = st.checkbox(
+                    f"{interest.name}",
+                    value=interest.id in current_interest_ids,
+                    help=interest.description,
+                    key=f"manage_interest_{interest.id}"
+                )
+                if is_selected:
+                    new_selections.append(interest.id)
+
+        if st.button("💾 Save Changes", type="primary"):
+            # Clear existing interests
+            member.interests.clear()
+
+            # Add new selections
+            for interest_id in new_selections:
+                interest = db.query(Interest).get(interest_id)
+                if interest:
+                    member.interests.append(interest)
+
+            db.commit()
+            st.success("✅ Interests updated successfully!")
+            st.rerun()
+
+        # Show statistics
+        st.markdown("---")
+        st.subheader("📊 Your Digest Statistics")
+
+        total_digests = db.query(Digest).filter_by(member_id=member_id).count()
+        draft_digests = db.query(Digest).filter_by(member_id=member_id, status='draft').count()
+        published_digests = db.query(Digest).filter_by(member_id=member_id, status='published').count()
+
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.metric("Total Digests", total_digests)
+        with col2:
+            st.metric("Draft", draft_digests)
+        with col3:
+            st.metric("Published", published_digests)
+
+    finally:
+        db.close()
+
+
+if __name__ == "__main__":
+    main()
+
