@@ -151,6 +151,3 @@ tag_ai/
 - Educational content curation
 - Community forum digests
 
----
-
-**Built with ❤️ using Streamlit and Groq AI**
