@@ -4,6 +4,7 @@ from requests.auth import HTTPBasicAuth
 from bs4 import BeautifulSoup
 from typing import List, Dict, Optional
 from datetime import datetime
+from logger_utils import log
 
 
 class WordPressFetcher:
@@ -68,7 +69,7 @@ class WordPressFetcher:
             return processed_posts
             
         except Exception as e:
-            print(f"Could not fetch posts: {str(e)}")
+            log.error(f"Could not fetch posts: {str(e)}")
             return []
     
     def scrape_post_content(self, url: str) -> Optional[str]:
@@ -132,7 +133,7 @@ class WordPressFetcher:
             return None
             
         except Exception as e:
-            print(f"Could not scrape content from {url}: {str(e)}")
+            log.error(f"Could not scrape content from {url}: {str(e)}")
             return None
     
     def get_posts_with_content(self, per_page: int = 10, page: int = 1) -> List[Dict]:
@@ -147,9 +148,9 @@ class WordPressFetcher:
             List of posts with scraped content
         """
         posts = self.get_posts(per_page=per_page, page=page)
-        
+
         for post in posts:
-            print(f"Scraping content for: {post['title']}")
+            log.debug(f"Scraping: {post['title'][:60]}...", indent=2)
             scraped_content = self.scrape_post_content(post['link'])
             
             if scraped_content:

@@ -1,13 +1,17 @@
 """Main Streamlit application for the Personalized Digest System."""
 import streamlit as st
 import json
-from datetime import datetime
+from datetime import datetime, timezone
 from database import (
     init_db, get_db, seed_default_interests,
-    Member, Interest, Document, Digest
+    Member, Interest, Document, Digest, SchedulerConfig, EmailQueue
 )
 from llm_service import LLMService
 from wordpress_fetcher import WordPressFetcher
+from email_service import EmailService
+from email_queue_processor import EmailQueueProcessor
+from scheduler_service import DigestScheduler
+from logger_utils import log
 
 # Initialize database
 init_db()
@@ -43,7 +47,7 @@ def main():
         st.header("Navigation")
         page = st.radio(
             "Select Page",
-            ["Home", "Member Onboarding", "Upload Document", "Fetch WordPress Posts", "View Digests", "Manage Interests"]
+            ["Home", "Member Onboarding", "Upload Document", "Fetch WordPress Posts", "View Digests", "Manage Interests", "🔧 Admin: Automation"]
         )
 
         st.markdown("---")
@@ -70,6 +74,8 @@ def main():
         show_view_digests()
     elif page == "Manage Interests":
         show_manage_interests()
+    elif page == "🔧 Admin: Automation":
+        show_admin_automation()
 
 
 def show_home():
@@ -636,7 +642,7 @@ def show_view_digests():
     db = get_db()
     try:
         member_id = st.session_state.current_member['id']
-        member = db.query(Member).get(member_id)
+        member = db.get(Member, member_id)
 
         # Show member interests
         st.subheader("Your Interests")
@@ -759,7 +765,7 @@ def show_manage_interests():
     db = get_db()
     try:
         member_id = st.session_state.current_member['id']
-        member = db.query(Member).get(member_id)
+        member = db.get(Member, member_id)
         all_interests = db.query(Interest).all()
 
         st.info("✏️ Update your interest preferences anytime. Your future digests will be adjusted accordingly.")
@@ -816,6 +822,271 @@ def show_manage_interests():
         db.close()
 
 
+def show_admin_automation():
+    """Admin page for configuring automated digest generation and email delivery."""
+    st.header("🔧 Admin: Digest Automation")
+
+    st.info("💡 Configure automated digest generation and email delivery. The system can fetch WordPress posts, generate digests, and email them to members on a schedule.")
+
+    db = get_db()
+    try:
+        # Get or create config
+        config = db.query(SchedulerConfig).first()
+        if not config:
+            config = SchedulerConfig()
+            db.add(config)
+            db.commit()
+
+        # Tabs for different sections
+        tab1, tab2, tab3, tab4 = st.tabs(["📅 Schedule Configuration", "📧 Email Settings", "📊 Queue Status", "🧪 Test & Run"])
+
+        # Tab 1: Schedule Configuration
+        with tab1:
+            st.subheader("Schedule Configuration")
+
+            with st.form("schedule_config"):
+                enabled = st.checkbox("Enable Automated Digests", value=bool(config.enabled))
+
+                col1, col2 = st.columns(2)
+                with col1:
+                    schedule_time = st.time_input(
+                        "Daily Run Time",
+                        value=datetime.strptime(config.schedule_time, '%H:%M').time()
+                    )
+
+                with col2:
+                    # Parse current days safely
+                    day_names = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
+                    try:
+                        current_days = [day_names[int(d)] for d in config.schedule_days.split(',') if d.strip().isdigit() and 0 <= int(d) <= 6]
+                    except:
+                        current_days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday']
+
+                    days_selected = st.multiselect(
+                        "Run on Days",
+                        options=day_names,
+                        default=current_days
+                    )
+
+                wordpress_url = st.text_input(
+                    "WordPress Site URL",
+                    value=config.wordpress_url or '',
+                    placeholder="https://example.com"
+                )
+
+                col1, col2 = st.columns(2)
+                with col1:
+                    posts_per_run = st.number_input(
+                        "Posts to Fetch Per Run",
+                        min_value=1,
+                        max_value=20,
+                        value=config.posts_per_run
+                    )
+
+                with col2:
+                    send_immediately = st.checkbox(
+                        "Send Emails Immediately",
+                        value=bool(config.send_immediately),
+                        help="If checked, emails will be sent immediately after digest generation. Otherwise, they'll be queued for manual processing."
+                    )
+
+                submitted = st.form_submit_button("💾 Save Configuration", use_container_width=True)
+
+                if submitted:
+                    # Validation
+                    if not days_selected:
+                        st.error("❌ Please select at least one day")
+                        return
+
+                    # Convert days to numbers (0=Monday)
+                    day_map = {'Monday': '0', 'Tuesday': '1', 'Wednesday': '2', 'Thursday': '3',
+                              'Friday': '4', 'Saturday': '5', 'Sunday': '6'}
+                    schedule_days = ','.join([day_map[d] for d in days_selected])
+
+                    config.enabled = 1 if enabled else 0
+                    config.schedule_time = schedule_time.strftime('%H:%M')
+                    config.schedule_days = schedule_days
+                    config.wordpress_url = wordpress_url
+                    config.posts_per_run = posts_per_run
+                    config.send_immediately = 1 if send_immediately else 0
+                    config.updated_at = datetime.now(timezone.utc)
+
+                    log.section("Saving Scheduler Configuration")
+                    log.info(f"Enabled: {enabled}", indent=1)
+                    log.info(f"Schedule: {config.schedule_time} on days {schedule_days}", indent=1)
+                    log.info(f"WordPress URL: {wordpress_url or 'Not set'}", indent=1)
+                    log.info(f"Posts per run: {posts_per_run}", indent=1)
+                    log.info(f"Send immediately: {send_immediately}", indent=1)
+
+                    try:
+                        db.commit()
+                        log.success("Configuration saved to database")
+                        st.success("✅ Configuration saved successfully!")
+                        st.rerun()
+                    except Exception as e:
+                        log.error(f"Failed to save configuration: {str(e)}")
+                        st.error(f"❌ Failed to save: {str(e)}")
+                        db.rollback()
+
+            # Show current status
+            st.markdown("---")
+            st.subheader("Current Status")
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                st.metric("Status", "Enabled ✅" if config.enabled else "Disabled ❌")
+            with col2:
+                if config.last_run:
+                    st.metric("Last Run", config.last_run.strftime('%Y-%m-%d %H:%M'))
+                else:
+                    st.metric("Last Run", "Never")
+            with col3:
+                if config.next_run:
+                    st.metric("Next Run", config.next_run.strftime('%Y-%m-%d %H:%M'))
+                else:
+                    st.metric("Next Run", "Not scheduled")
+
+        # Tab 2: Email Settings
+        with tab2:
+            st.subheader("Email Configuration")
+
+            st.markdown("""
+            Configure your email settings in the `.env` file:
+
+            ```bash
+            # SMTP Configuration
+            SMTP_HOST=smtp.gmail.com
+            SMTP_PORT=587
+            SMTP_USERNAME=your-email@gmail.com
+            SMTP_PASSWORD=your-app-password
+            FROM_EMAIL=your-email@gmail.com
+            FROM_NAME=Personalized Digest System
+
+            # Branding
+            BRAND_NAME=My Digest
+            BRAND_COLOR=#4F46E5
+            LOGO_URL=https://example.com/logo.png
+            SUPPORT_EMAIL=support@example.com
+            ```
+            """)
+
+            # Test email connection
+            email_service = EmailService()
+            if st.button("🧪 Test Email Connection"):
+                with st.spinner("Testing SMTP connection..."):
+                    success, message = email_service.test_connection()
+                    if success:
+                        st.success(f"✅ {message}")
+                    else:
+                        st.error(f"❌ {message}")
+
+        # Tab 3: Queue Status
+        with tab3:
+            st.subheader("Email Queue Status")
+
+            # Get queue statistics
+            pending = db.query(EmailQueue).filter_by(status='pending').count()
+            sent = db.query(EmailQueue).filter_by(status='sent').count()
+            failed = db.query(EmailQueue).filter_by(status='failed').count()
+            retry = db.query(EmailQueue).filter_by(status='retry').count()
+
+            col1, col2, col3, col4 = st.columns(4)
+            with col1:
+                st.metric("⏳ Pending", pending)
+            with col2:
+                st.metric("✅ Sent", sent)
+            with col3:
+                st.metric("❌ Failed", failed)
+            with col4:
+                st.metric("🔄 Retry", retry)
+
+            # Process queue button
+            if pending > 0 or retry > 0:
+                if st.button("📧 Process Email Queue Now", use_container_width=True):
+                    with st.spinner(f"Processing {pending + retry} emails..."):
+                        processor = EmailQueueProcessor()
+                        stats = processor.process_queue()
+
+                        st.success(f"✅ Processed {stats['processed']} emails")
+                        st.write(f"• Sent: {stats['sent']}")
+                        st.write(f"• Failed: {stats['failed']}")
+
+                        if stats['errors']:
+                            with st.expander("View Errors"):
+                                for error in stats['errors']:
+                                    st.error(f"{error['email']}: {error['error']}")
+
+                        st.rerun()
+
+            # Show recent emails
+            st.markdown("---")
+            st.subheader("Recent Emails")
+            recent_emails = db.query(EmailQueue).order_by(EmailQueue.created_at.desc()).limit(10).all()
+
+            if recent_emails:
+                for email in recent_emails:
+                    with st.expander(f"{email.recipient_email} - {email.status.upper()}"):
+                        st.write(f"**Subject:** {email.subject}")
+                        st.write(f"**Status:** {email.status}")
+                        st.write(f"**Priority:** {email.priority}")
+                        st.write(f"**Attempts:** {email.attempts}/{email.max_attempts}")
+                        st.write(f"**Scheduled:** {email.scheduled_at}")
+                        if email.sent_at:
+                            st.write(f"**Sent:** {email.sent_at}")
+                        if email.error_message:
+                            st.error(f"**Error:** {email.error_message}")
+            else:
+                st.info("No emails in queue")
+
+        # Tab 4: Test & Run
+        with tab4:
+            st.subheader("Manual Testing & Execution")
+
+            st.warning("⚠️ These actions will run immediately. Use for testing only.")
+
+            col1, col2 = st.columns(2)
+
+            with col1:
+                if st.button("🚀 Run Digest Generation Now", use_container_width=True):
+                    with st.spinner("Running digest generation..."):
+                        scheduler = DigestScheduler()
+                        scheduler.run_now()
+                        st.success("✅ Digest generation completed!")
+                        st.rerun()
+
+            with col2:
+                if st.button("📧 Process Email Queue Now", use_container_width=True):
+                    with st.spinner("Processing email queue..."):
+                        processor = EmailQueueProcessor()
+                        stats = processor.process_queue()
+                        st.success(f"✅ Processed {stats['sent']} emails")
+                        st.rerun()
+
+            st.markdown("---")
+            st.subheader("📚 Setup Instructions")
+
+            # Show log file location
+            from pathlib import Path
+            log_dir = Path("logs")
+            log_file = log_dir / f"digest_{datetime.now().strftime('%Y%m%d')}.log"
+
+            if log_file.exists():
+                # Show recent log entries
+                with st.expander("View Recent Logs (Last 50 lines)"):
+                    try:
+                        with open(log_file, 'r') as f:
+                            lines = f.readlines()
+                            recent_lines = lines[-50:] if len(lines) > 50 else lines
+                            st.code(''.join(recent_lines), language='log')
+                    except Exception as e:
+                        st.error(f"Error reading log file: {e}")
+            else:
+                st.info(f"📝 Logs will be saved to: `{log_file.absolute()}`")
+
+            st.markdown("---")
+
+    finally:
+        db.close()
+
+
 if __name__ == "__main__":
     main()
-
