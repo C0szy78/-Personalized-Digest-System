@@ -26,10 +26,10 @@ class EmailQueueProcessor:
     def process_queue(self, max_emails: Optional[int] = None) -> dict:
         """
         Process pending emails in the queue.
-        
+
         Args:
             max_emails: Maximum number of emails to process (None = process all)
-            
+
         Returns:
             Dictionary with processing statistics
         """
@@ -41,7 +41,7 @@ class EmailQueueProcessor:
             'skipped': 0,
             'errors': []
         }
-        
+
         try:
             # Get pending emails, ordered by priority (lower number = higher priority) and scheduled time
             query = db.query(EmailQueue).filter(
@@ -51,18 +51,18 @@ class EmailQueueProcessor:
                 EmailQueue.priority.asc(),
                 EmailQueue.scheduled_at.asc()
             )
-            
+
             if max_emails:
                 query = query.limit(max_emails)
-            
+
             pending_emails = query.all()
 
             log.section("Email Queue Processor")
             log.info(f"Found {len(pending_emails)} emails to process", indent=1)
-            
+
             for email_item in pending_emails:
                 stats['processed'] += 1
-                
+
                 try:
                     # Send the email
                     success, error_msg = self.email_service.send_email(
@@ -71,10 +71,10 @@ class EmailQueueProcessor:
                         html_body=email_item.html_body,
                         to_name=None
                     )
-                    
+
                     # Update email status
                     email_item.attempts += 1
-                    
+
                     if success:
                         email_item.status = 'sent'
                         email_item.sent_at = datetime.now(timezone.utc)
@@ -90,35 +90,47 @@ class EmailQueueProcessor:
                             email_item.status = 'retry'
                             stats['failed'] += 1
                             log.warning(f"Failed to send to {email_item.recipient_email}, will retry", indent=1)
-                        
+
                         email_item.error_message = error_msg
                         stats['errors'].append({
                             'email': email_item.recipient_email,
                             'error': error_msg
                         })
-                    
+
                     db.commit()
-                    
+
                     # Delay between emails to avoid rate limits
                     if stats['processed'] < len(pending_emails):
                         time.sleep(self.delay_between_emails)
-                        
+
                 except Exception as e:
+                    # Rollback the transaction on error
+                    db.rollback()
+
                     error_msg = f"Exception processing email {email_item.id}: {str(e)}"
                     log.error(error_msg, indent=1)
-                    
-                    email_item.attempts += 1
-                    email_item.status = 'failed' if email_item.attempts >= email_item.max_attempts else 'retry'
-                    email_item.error_message = error_msg
-                    
+
+                    try:
+                        # Re-fetch the email item after rollback
+                        email_item = db.query(EmailQueue).filter_by(id=email_item.id).first()
+                        if email_item:
+                            email_item.attempts += 1
+                            email_item.status = 'failed' if email_item.attempts >= email_item.max_attempts else 'retry'
+                            email_item.error_message = error_msg
+                            db.commit()
+                    except Exception as rollback_error:
+                        log.error(f"Error during rollback recovery: {str(rollback_error)}", indent=1)
+                        db.rollback()
+
                     stats['errors'].append({
                         'email': email_item.recipient_email,
                         'error': error_msg
                     })
                     stats['failed'] += 1
-                    
-                    db.commit()
-                    
+
+        except Exception as e:
+            log.error(f"Critical error in process_queue: {str(e)}")
+            db.rollback()
         finally:
             db.close()
 

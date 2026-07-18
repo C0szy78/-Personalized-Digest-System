@@ -72,8 +72,11 @@ class Digest(Base):
     document_id = Column(Integer, ForeignKey('documents.id'), nullable=False)
     summary = Column(Text, nullable=False)
     relevance_score = Column(Integer)  # How well it matches member interests
-    status = Column(String(20), default='draft')  # draft, published
+    status = Column(String(20), default='draft')  # draft, pending_review, approved, rejected, published
     created_at = Column(DateTime, default=utc_now)
+    reviewed_at = Column(DateTime, nullable=True)  # When admin reviewed
+    reviewed_by = Column(String(200), nullable=True)  # Admin who reviewed
+    rejection_reason = Column(Text, nullable=True)  # Reason if rejected
 
     # Relationships
     member = relationship('Member', back_populates='digests')
@@ -123,13 +126,57 @@ class SchedulerConfig(Base):
 
 
 # Database setup
-engine = create_engine('sqlite:///digest_system.db', echo=False)
-SessionLocal = sessionmaker(bind=engine)
+# Enable better concurrent access handling for SQLite
+engine = create_engine(
+    'sqlite:///digest_system.db',
+    echo=False,
+    connect_args={
+        'check_same_thread': False,
+        'timeout': 30  # 30 second timeout for lock
+    },
+    pool_pre_ping=True  # Verify connections before using
+)
+SessionLocal = sessionmaker(bind=engine, autocommit=False, autoflush=False)
+
+
+def _migrate_digest_table():
+    """Add new columns to digests table for Task 4 (admin review)."""
+    import sqlite3
+
+    try:
+        conn = sqlite3.connect('digest_system.db')
+        cursor = conn.cursor()
+
+        # Check if columns exist
+        cursor.execute("PRAGMA table_info(digests)")
+        columns = [row[1] for row in cursor.fetchall()]
+
+        # Add new columns if they don't exist
+        if 'reviewed_at' not in columns:
+            cursor.execute("ALTER TABLE digests ADD COLUMN reviewed_at DATETIME")
+            print("✅ Added 'reviewed_at' column to digests table")
+
+        if 'reviewed_by' not in columns:
+            cursor.execute("ALTER TABLE digests ADD COLUMN reviewed_by VARCHAR(200)")
+            print("✅ Added 'reviewed_by' column to digests table")
+
+        if 'rejection_reason' not in columns:
+            cursor.execute("ALTER TABLE digests ADD COLUMN rejection_reason TEXT")
+            print("✅ Added 'rejection_reason' column to digests table")
+
+        conn.commit()
+        conn.close()
+
+    except Exception as e:
+        print(f"⚠️ Migration warning: {e}")
 
 
 def init_db():
     """Initialize the database."""
     Base.metadata.create_all(engine)
+
+    # Migration: Add new columns to existing digests table if they don't exist
+    _migrate_digest_table()
 
 
 def get_db():
@@ -155,11 +202,11 @@ def seed_default_interests(db):
         {"name": "Education", "description": "Learning, teaching, and educational content"},
         {"name": "Environment", "description": "Climate, sustainability, and environmental issues"},
     ]
-    
+
     for interest_data in default_interests:
         existing = db.query(Interest).filter_by(name=interest_data["name"]).first()
         if not existing:
             interest = Interest(**interest_data)
             db.add(interest)
-    
+
     db.commit()

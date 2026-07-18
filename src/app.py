@@ -45,9 +45,22 @@ def main():
     # Sidebar for navigation
     with st.sidebar:
         st.header("Navigation")
+
+        # Show pending review count
+        db_temp = get_db()
+        try:
+            pending_review_count = db_temp.query(Digest).filter_by(status='pending_review').count()
+        finally:
+            db_temp.close()
+
+        # Add badge to review page if there are pending items
+        review_page_label = "✅ Admin: Review Digests"
+        if pending_review_count > 0:
+            review_page_label = f"✅ Admin: Review Digests ({pending_review_count} ⏳)"
+
         page = st.radio(
             "Select Page",
-            ["Home", "Member Onboarding", "Upload Document", "Fetch WordPress Posts", "View Digests", "Manage Interests", "🔧 Admin: Automation"]
+            ["Home", "Member Onboarding", "Upload Document", "Fetch WordPress Posts", "View Digests", "Manage Interests", "🔧 Admin: Automation", review_page_label]
         )
 
         st.markdown("---")
@@ -76,6 +89,8 @@ def main():
         show_manage_interests()
     elif page == "🔧 Admin: Automation":
         show_admin_automation()
+    elif "✅ Admin: Review Digests" in page:  # Match with or without count badge
+        show_admin_review_digests()
 
 
 def show_home():
@@ -596,13 +611,13 @@ def generate_all_digests(db, document, extraction_result):
                     document_tags=document_tags
                 )
 
-                # Create digest
+                # Create digest with pending_review status for admin approval
                 digest = Digest(
                     member_id=member.id,
                     document_id=document.id,
                     summary=summary,
                     relevance_score=relevance_score,
-                    status='draft'
+                    status='pending_review'  # Require admin review before sending
                 )
                 db.add(digest)
 
@@ -624,6 +639,10 @@ def generate_all_digests(db, document, extraction_result):
             for detail in digest_details:
                 st.write(f"**{detail['member']}**: Relevance {detail['relevance_score']}/100 | "
                         f"Matching: {', '.join(detail['matching_tags']) if detail['matching_tags'] else 'None'}")
+
+        # Show approval reminder
+        st.success(f"✅ Generated {len(digest_details)} digest(s)")
+        st.info("⏳ **Admin Approval Required:** Go to '✅ Admin: Review Digests' page to review and approve before sending emails")
 
         return len(digest_details)
 
@@ -1046,7 +1065,7 @@ def show_admin_automation():
             col1, col2 = st.columns(2)
 
             with col1:
-                if st.button("🚀 Run Digest Generation Now", key="run_digest_generation_now", use_container_width=True):
+                if st.button("🚀 Run Digest Generation Now", use_container_width=True):
                     with st.spinner("Running digest generation..."):
                         scheduler = DigestScheduler()
                         scheduler.run_now()
@@ -1054,7 +1073,7 @@ def show_admin_automation():
                         st.rerun()
 
             with col2:
-                if st.button("📧 Process Email Queue Now",key="process_email_queue_now", use_container_width=True):
+                if st.button("📧 Process Email Queue Now", use_container_width=True):
                     with st.spinner("Processing email queue..."):
                         processor = EmailQueueProcessor()
                         stats = processor.process_queue()
@@ -1083,6 +1102,265 @@ def show_admin_automation():
                 st.info(f"📝 Logs will be saved to: `{log_file.absolute()}`")
 
             st.markdown("---")
+
+    finally:
+        db.close()
+
+
+def show_admin_review_digests():
+    """
+    Admin page for reviewing AI-generated digests before they are sent.
+    Task 4: Safety review to minimize brand risk.
+    """
+    st.header("✅ Admin: Review AI-Generated Digests")
+
+    st.info("""
+    **🛡️ Content Safety Review**
+
+    Review AI-generated digest summaries before they are sent to members. This helps ensure:
+    - Content is appropriate and accurate
+    - No sensitive or inappropriate information
+    - Brand voice and quality standards are maintained
+    - No AI hallucinations or errors
+    """)
+
+    db = get_db()
+    try:
+        # Get counts for each status
+        pending_count = db.query(Digest).filter_by(status='pending_review').count()
+        approved_count = db.query(Digest).filter_by(status='approved').count()
+        rejected_count = db.query(Digest).filter_by(status='rejected').count()
+
+        # Show stats
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.metric("⏳ Pending Review", pending_count)
+        with col2:
+            st.metric("✅ Approved", approved_count)
+        with col3:
+            st.metric("❌ Rejected", rejected_count)
+
+        st.markdown("---")
+
+        # Tabs for different views
+        tab1, tab2, tab3 = st.tabs(["⏳ Pending Review", "✅ Approved", "❌ Rejected"])
+
+        # Tab 1: Pending Review
+        with tab1:
+            st.subheader(f"Digests Pending Review ({pending_count})")
+
+            if pending_count == 0:
+                st.success("🎉 No digests pending review! All caught up.")
+            else:
+                # Bulk actions
+                col1, col2 = st.columns([3, 1])
+                with col1:
+                    st.info(f"📋 {pending_count} digest(s) waiting for your review")
+                with col2:
+                    if st.button("🔄 Refresh", use_container_width=True):
+                        st.rerun()
+
+                st.markdown("---")
+
+                # Get pending digests
+                pending_digests = db.query(Digest).filter_by(status='pending_review').order_by(
+                    Digest.created_at.desc()
+                ).all()
+
+                # Review each digest
+                for idx, digest in enumerate(pending_digests):
+                    with st.expander(
+                        f"📄 Digest #{digest.id} - {digest.document.title[:60]}... → {digest.member.name}",
+                        expanded=(idx == 0)  # Expand first one by default
+                    ):
+                        # Show digest details
+                        col1, col2 = st.columns([2, 1])
+
+                        with col1:
+                            st.markdown(f"**Document Title:** {digest.document.title}")
+                            st.markdown(f"**Recipient:** {digest.member.name} ({digest.member.email})")
+
+                        with col2:
+                            st.markdown(f"**Relevance Score:** {digest.relevance_score}")
+                            st.markdown(f"**Created:** {digest.created_at.strftime('%Y-%m-%d %H:%M')}")
+
+                        # Member interests
+                        member_interests = [i.name for i in digest.member.interests]
+                        st.markdown(f"**Member Interests:** {', '.join(member_interests)}")
+
+                        # Document tags
+                        if digest.document.extracted_tags:
+                            try:
+                                tags_data = json.loads(digest.document.extracted_tags)
+                                doc_tags = tags_data.get('tags', [])
+                                st.markdown(f"**Document Tags:** {', '.join(doc_tags)}")
+                            except:
+                                pass
+
+                        st.markdown("---")
+
+                        # Show AI-generated summary
+                        st.markdown("### 📝 AI-Generated Summary")
+                        st.markdown(f"> {digest.summary}")
+
+                        st.markdown("---")
+
+                        # Show original content preview
+                        with st.expander("📖 View Original Document Content"):
+                            st.text_area(
+                                "Full Content",
+                                digest.document.content,
+                                height=200,
+                                key=f"content_{digest.id}",
+                                disabled=True
+                            )
+
+                        st.markdown("---")
+
+                        # Review actions
+                        st.markdown("### 🔍 Review Decision")
+
+                        col1, col2, col3 = st.columns([2, 2, 2])
+
+                        with col1:
+                            if st.button(
+                                "✅ Approve & Queue Email",
+                                key=f"approve_{digest.id}",
+                                type="primary",
+                                use_container_width=True
+                            ):
+                                # Update digest status
+                                digest.status = 'approved'
+                                digest.reviewed_at = datetime.now(timezone.utc)
+                                digest.reviewed_by = 'Admin'  # Could be enhanced with actual user tracking
+
+                                # Queue email for sending
+                                processor = EmailQueueProcessor()
+                                processor.queue_digest_email(db, digest)
+
+                                db.commit()
+
+                                st.success(f"✅ Digest approved and email queued for {digest.member.email}")
+                                st.info("💡 Go to 'Admin: Automation' → 'Queue Status' to send emails")
+                                st.rerun()
+
+                        with col2:
+                            if st.button(
+                                "❌ Reject",
+                                key=f"reject_{digest.id}",
+                                use_container_width=True
+                            ):
+                                # Show rejection reason input
+                                st.session_state[f'show_reject_{digest.id}'] = True
+                                st.rerun()
+
+                        with col3:
+                            if st.button(
+                                "⏭️ Skip for Now",
+                                key=f"skip_{digest.id}",
+                                use_container_width=True
+                            ):
+                                st.info("Skipped - will remain in pending review")
+
+                        # Rejection reason dialog
+                        if st.session_state.get(f'show_reject_{digest.id}', False):
+                            st.markdown("---")
+                            rejection_reason = st.text_area(
+                                "Rejection Reason (optional)",
+                                placeholder="Why is this digest being rejected? (e.g., inappropriate content, inaccurate summary, poor quality)",
+                                key=f"rejection_reason_{digest.id}"
+                            )
+
+                            col1, col2 = st.columns(2)
+                            with col1:
+                                if st.button(
+                                    "Confirm Rejection",
+                                    key=f"confirm_reject_{digest.id}",
+                                    type="primary",
+                                    use_container_width=True
+                                ):
+                                    digest.status = 'rejected'
+                                    digest.reviewed_at = datetime.now(timezone.utc)
+                                    digest.reviewed_by = 'Admin'
+                                    digest.rejection_reason = rejection_reason or "No reason provided"
+                                    db.commit()
+
+                                    st.success(f"❌ Digest rejected")
+                                    del st.session_state[f'show_reject_{digest.id}']
+                                    st.rerun()
+
+                            with col2:
+                                if st.button(
+                                    "Cancel",
+                                    key=f"cancel_reject_{digest.id}",
+                                    use_container_width=True
+                                ):
+                                    del st.session_state[f'show_reject_{digest.id}']
+                                    st.rerun()
+
+                        st.markdown("---")
+
+        # Tab 2: Approved
+        with tab2:
+            st.subheader(f"Approved Digests ({approved_count})")
+
+            if approved_count == 0:
+                st.info("No approved digests yet")
+            else:
+                approved_digests = db.query(Digest).filter_by(status='approved').order_by(
+                    Digest.reviewed_at.desc()
+                ).limit(20).all()
+
+                for digest in approved_digests:
+                    with st.expander(
+                        f"✅ {digest.document.title[:50]}... → {digest.member.name}"
+                    ):
+                        st.markdown(f"**Reviewed:** {digest.reviewed_at.strftime('%Y-%m-%d %H:%M')}")
+                        st.markdown(f"**Reviewed by:** {digest.reviewed_by}")
+                        st.markdown(f"**Recipient:** {digest.member.email}")
+                        st.markdown("---")
+                        st.markdown("**Summary:**")
+                        st.markdown(f"> {digest.summary}")
+
+        # Tab 3: Rejected
+        with tab3:
+            st.subheader(f"Rejected Digests ({rejected_count})")
+
+            if rejected_count == 0:
+                st.info("No rejected digests")
+            else:
+                rejected_digests = db.query(Digest).filter_by(status='rejected').order_by(
+                    Digest.reviewed_at.desc()
+                ).limit(20).all()
+
+                for digest in rejected_digests:
+                    with st.expander(
+                        f"❌ {digest.document.title[:50]}... → {digest.member.name}"
+                    ):
+                        st.markdown(f"**Reviewed:** {digest.reviewed_at.strftime('%Y-%m-%d %H:%M')}")
+                        st.markdown(f"**Reviewed by:** {digest.reviewed_by}")
+                        st.markdown(f"**Recipient:** {digest.member.email}")
+
+                        if digest.rejection_reason:
+                            st.warning(f"**Rejection Reason:** {digest.rejection_reason}")
+
+                        st.markdown("---")
+                        st.markdown("**Summary:**")
+                        st.markdown(f"> {digest.summary}")
+
+                        # Option to re-review
+                        if st.button(
+                            "🔄 Move Back to Pending Review",
+                            key=f"unreject_{digest.id}",
+                            use_container_width=True
+                        ):
+                            digest.status = 'pending_review'
+                            digest.reviewed_at = None
+                            digest.reviewed_by = None
+                            digest.rejection_reason = None
+                            db.commit()
+                            st.success("Moved back to pending review")
+                            st.rerun()
 
     finally:
         db.close()

@@ -125,11 +125,12 @@ class DigestScheduler:
             else:
                 log.warning("No WordPress URL configured, skipping post fetch")
             
-            # Process email queue if send_immediately is enabled
-            if config.send_immediately:
-                log.section("Processing Email Queue")
-                stats = self.email_processor.process_queue()
-                log.success(f"Emails sent: {stats['sent']}, Failed: {stats['failed']}")
+            # Note: Emails are NOT sent automatically anymore
+            # All digests require admin approval before emailing (Task 4: Safety Review)
+            log.section("Digest Status")
+            log.info("✅ Digests created with 'pending_review' status", indent=1)
+            log.info("⏳ Admin approval required before sending emails", indent=1)
+            log.info("💡 Go to 'Admin: Review Digests' page to approve/reject", indent=1)
 
             db.commit()
 
@@ -197,20 +198,19 @@ class DigestScheduler:
                     document_tags=document_tags
                 )
 
-                # Create digest
+                # Create digest with pending_review status for admin approval (Task 4)
                 digest = Digest(
                     member_id=member.id,
                     document_id=document.id,
                     summary=summary,
                     relevance_score=relevance_score,
-                    status='published'  # Auto-publish scheduled digests
+                    status='pending_review'  # Require admin review before sending
                 )
                 db.add(digest)
                 db.flush()
 
-                # Queue email if enabled
-                if config.send_immediately:
-                    self.email_processor.queue_digest_email(db, digest)
+                # NOTE: Emails are NOT queued here anymore
+                # They will be queued only after admin approval in the review page
 
                 digests_created += 1
 
