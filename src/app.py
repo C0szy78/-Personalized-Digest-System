@@ -1046,7 +1046,7 @@ def show_admin_automation():
             col1, col2 = st.columns(2)
 
             with col1:
-                if st.button("🚀 Run Digest Generation Now", use_container_width=True):
+                if st.button("🚀 Run Digest Generation Now", key="run_digest_generation_now", use_container_width=True):
                     with st.spinner("Running digest generation..."):
                         scheduler = DigestScheduler()
                         scheduler.run_now()
@@ -1054,7 +1054,7 @@ def show_admin_automation():
                         st.rerun()
 
             with col2:
-                if st.button("📧 Process Email Queue Now", use_container_width=True):
+                if st.button("📧 Process Email Queue Now",key="process_email_queue_now", use_container_width=True):
                     with st.spinner("Processing email queue..."):
                         processor = EmailQueueProcessor()
                         stats = processor.process_queue()
