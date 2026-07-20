@@ -2,14 +2,14 @@
 /**
  * Plugin Name: RBRT Personalized Digest
  * Description: Creates interest-scoped draft digests from unread PWork forum activity and approved directory updates.
- * Version: 1.0.0
+ * Version: 1.1.0
  * Author: RBRT
  * Text Domain: rbrt-personalized-digest
  */
 
 defined('ABSPATH') || exit;
 
-define('RBRT_DIGEST_VERSION', '1.0.0');
+define('RBRT_DIGEST_VERSION', '1.1.0');
 define('RBRT_DIGEST_FILE', __FILE__);
 define('RBRT_DIGEST_DIR', plugin_dir_path(__FILE__));
 

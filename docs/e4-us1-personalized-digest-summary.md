@@ -1,7 +1,7 @@
 # E4-US1 Personalized Digest — Implementation and Verification
 
 Date: 2026-07-20
-Plugin: `RBRT Personalized Digest` v1.0.0
+Plugin: `RBRT Personalized Digest` v1.1.0
 Master source: `wordpress-plugin/rbrt-personalized-digest/`
 
 ## Outcome
@@ -76,7 +76,9 @@ A daily WordPress Cron event starts batched processing for approved PWork member
 
 ## Staging verification
 
-The v1.0.0 unique-folder build was installed and activated on `https://domain1.badev.tools` on 2026-07-20. Production was not touched.
+The current branch was packaged as the unique-folder v1.1.0 build and activated on `https://domain1.badev.tools` on 2026-07-20. The earlier v1.0.0 copy is inactive, exactly one Personalized Digest copy is active, and production was not touched. The live Users → Personalized Digests page shows the Ollama Cloud configuration contract (`OLLAMA_API_KEY` / `RBRT_DIGEST_OLLAMA_API_KEY`), the existing source-count and item metadata, and no PHP or activation error. Staging PHP does not yet expose the Ollama secret, so the live page correctly reports Not configured and scheduled model generation remains disabled.
+
+The earlier v1.0.0 staging pass established the WordPress/PWork collection and fallback behavior below:
 
 - Users → Personalized Digests loaded for the staging administrator, showed approved RBRT accounts, and reported that the previous OpenAI configuration was not present. The pending Ollama build will report `OLLAMA_API_KEY`/`RBRT_DIGEST_OLLAMA_API_KEY` instead.
 - A controlled 365-day first run for Cosmin-Gabriel (user 679) queried live RBRT data and created WordPress draft 463. Its stored window was `2025-07-20 09:37:38` through `2026-07-20 09:37:38` UTC.
@@ -86,8 +88,8 @@ The v1.0.0 unique-folder build was installed and activated on `https://domain1.b
 - The corrected package was installed over the staging copy while keeping the plugin active. A repeat run then returned `No unread updates were found`, created no additional draft, and advanced the watermark to close the checked window. The invalid repeat test draft was moved to the WordPress Bin (recoverable), leaving one valid staging draft.
 - Live Ollama Cloud generation inside staging WordPress remains pending until its key is securely exposed to staging PHP. Direct authenticated `kimi-k2.6` generation and structured-output parsing were verified locally; the live WordPress behavior verified so far is the deterministic fallback path. Automated tests cover both model success and LLM failure.
 
-Staging package: `rbrt-personalized-digest-v1.0.0.zip`
-SHA-256: `B8629D06516E07ABC3A714B8C15D48266577B5F2C2E97A1DBBD0D4E0E0FAE67D`
+Staging package: `rbrt-personalized-digest-v1.1.0.zip`
+SHA-256: `7163F9CBC3FFEC6159E67826DA308C7EEE6DE052760F9E4D713E1D0FF30BCF74`
 
 ## Pull-request status
 
