@@ -231,9 +231,9 @@ final class RBRT_Personalized_Digest_Plugin {
         wp_localize_script('rbrt-digest-bubble', 'rbrtDigestBubble', array(
             'ajaxUrl' => admin_url('admin-ajax.php'),
             'nonce' => wp_create_nonce('rbrt_digest_member_bubble'),
-            'loading' => __('Loading your digest…', 'rbrt-personalized-digest'),
-            'generating' => __('Checking for relevant updates…', 'rbrt-personalized-digest'),
-            'error' => __('Your digest could not be loaded. Please try again.', 'rbrt-personalized-digest'),
+            'loading' => $this->member_text('Loading your digest…'),
+            'generating' => $this->member_text('Checking for relevant updates…'),
+            'error' => $this->member_text('Your digest could not be loaded. Please try again.'),
         ));
     }
 
@@ -246,21 +246,21 @@ final class RBRT_Personalized_Digest_Plugin {
         <div class="rbrt-digest-bot" data-rbrt-digest-bot>
             <section class="rbrt-digest-panel" id="rbrt-digest-panel" role="dialog" aria-modal="false" aria-labelledby="rbrt-digest-title" hidden>
                 <header class="rbrt-digest-panel__header">
-                    <div><span class="rbrt-digest-panel__eyebrow"><?php echo esc_html__('Personalised for you', 'rbrt-personalized-digest'); ?></span><h2 id="rbrt-digest-title"><?php echo esc_html__('My Digest', 'rbrt-personalized-digest'); ?></h2></div>
-                    <button class="rbrt-digest-panel__close" type="button" aria-label="<?php echo esc_attr__('Close My Digest', 'rbrt-personalized-digest'); ?>">&times;</button>
+                    <div><span class="rbrt-digest-panel__eyebrow"><?php echo esc_html($this->member_text('Personalised for you')); ?></span><h2 id="rbrt-digest-title"><?php echo esc_html($this->member_text('My Digest')); ?></h2></div>
+                    <button class="rbrt-digest-panel__close" type="button" aria-label="<?php echo esc_attr($this->member_text('Close My Digest')); ?>">&times;</button>
                 </header>
                 <div class="rbrt-digest-panel__body">
                     <div class="rbrt-digest-panel__status" role="status" aria-live="polite"></div>
                     <div class="rbrt-digest-panel__content"></div>
                 </div>
                 <footer class="rbrt-digest-panel__footer">
-                    <button class="rbrt-digest-panel__refresh" type="button"><?php echo esc_html__('Check for new updates', 'rbrt-personalized-digest'); ?></button>
-                    <span><?php echo esc_html__('Topics, replies and directory updates matched to your interests.', 'rbrt-personalized-digest'); ?></span>
+                    <button class="rbrt-digest-panel__refresh" type="button"><?php echo esc_html($this->member_text('Check for new updates')); ?></button>
+                    <span><?php echo esc_html($this->member_text('Topics, replies and directory updates matched to your interests.')); ?></span>
                 </footer>
             </section>
-            <button class="rbrt-digest-launcher" type="button" aria-expanded="false" aria-controls="rbrt-digest-panel" aria-label="<?php echo esc_attr__('Open My Digest', 'rbrt-personalized-digest'); ?>">
+            <button class="rbrt-digest-launcher" type="button" aria-expanded="false" aria-controls="rbrt-digest-panel" aria-label="<?php echo esc_attr($this->member_text('Open My Digest')); ?>">
                 <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M4 4h16a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H9l-5 4v-4a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2Zm3 5a1 1 0 1 0 0 2 1 1 0 0 0 0-2Zm5 0a1 1 0 1 0 0 2 1 1 0 0 0 0-2Zm5 0a1 1 0 1 0 0 2 1 1 0 0 0 0-2Z"/></svg>
-                <span><?php echo esc_html__('My Digest', 'rbrt-personalized-digest'); ?></span>
+                <span><?php echo esc_html($this->member_text('My Digest')); ?></span>
             </button>
         </div>
         <?php
@@ -269,7 +269,7 @@ final class RBRT_Personalized_Digest_Plugin {
     public function handle_member_latest() {
         check_ajax_referer('rbrt_digest_member_bubble', 'nonce');
         if (!$this->can_use_member_bubble()) {
-            wp_send_json_error(array('message' => __('This digest is available only to approved signed-in members.', 'rbrt-personalized-digest')), 403);
+            wp_send_json_error(array('message' => $this->member_text('This digest is available only to approved signed-in members.')), 403);
         }
         wp_send_json_success($this->member_digest_payload(get_current_user_id()));
     }
@@ -277,28 +277,28 @@ final class RBRT_Personalized_Digest_Plugin {
     public function handle_member_generate() {
         check_ajax_referer('rbrt_digest_member_bubble', 'nonce');
         if (!$this->can_use_member_bubble()) {
-            wp_send_json_error(array('message' => __('This digest is available only to approved signed-in members.', 'rbrt-personalized-digest')), 403);
+            wp_send_json_error(array('message' => $this->member_text('This digest is available only to approved signed-in members.')), 403);
         }
         $member_id = get_current_user_id();
         $lock_key = '_rbrt_digest_member_lock_' . $member_id;
         if (get_transient($lock_key)) {
-            wp_send_json_error(array('message' => __('Your digest is already being checked. Please wait a moment.', 'rbrt-personalized-digest')), 429);
+            wp_send_json_error(array('message' => $this->member_text('Your digest is already being checked. Please wait a moment.')), 429);
         }
         set_transient($lock_key, 1, 2 * MINUTE_IN_SECONDS);
         $result = $this->service()->generate_for_member($member_id);
         delete_transient($lock_key);
         if (is_wp_error($result)) {
-            wp_send_json_error(array('message' => __('Your digest could not be generated. Please try again later.', 'rbrt-personalized-digest')), 500);
+            wp_send_json_error(array('message' => $this->member_text('Your digest could not be generated. Please try again later.')), 500);
         }
         $messages = array(
-            'ai' => __('Your new personalised digest is ready.', 'rbrt-personalized-digest'),
-            'fallback' => __('Your new digest is ready using source excerpts.', 'rbrt-personalized-digest'),
-            'no_interests' => __('Add interests to your profile so the bot can personalise your digest.', 'rbrt-personalized-digest'),
-            'no_updates' => __('You are all caught up. There are no unread updates.', 'rbrt-personalized-digest'),
-            'no_relevant_updates' => __('There are no unread updates matching your interests.', 'rbrt-personalized-digest'),
+            'ai' => $this->member_text('Your new personalised digest is ready.'),
+            'fallback' => $this->member_text('Your new digest is ready using source excerpts.'),
+            'no_interests' => $this->member_text('Add interests to your profile so the bot can personalise your digest.'),
+            'no_updates' => $this->member_text('You are all caught up. There are no unread updates.'),
+            'no_relevant_updates' => $this->member_text('There are no unread updates matching your interests.'),
         );
         $payload = $this->member_digest_payload($member_id);
-        $payload['message'] = isset($messages[$result['status']]) ? $messages[$result['status']] : __('Your digest check finished.', 'rbrt-personalized-digest');
+        $payload['message'] = isset($messages[$result['status']]) ? $messages[$result['status']] : $this->member_text('Your digest check finished.');
         wp_send_json_success($payload);
     }
 
@@ -400,9 +400,9 @@ final class RBRT_Personalized_Digest_Plugin {
         if (!$drafts) {
             return array(
                 'empty' => true,
-                'message' => __('No digest is ready yet. Check for new updates to create your first one.', 'rbrt-personalized-digest'),
+                'message' => $this->member_text('No digest is ready yet. Check for new updates to create your first one.'),
                 'content' => '',
-                'title' => __('My Digest', 'rbrt-personalized-digest'),
+                'title' => $this->member_text('My Digest'),
             );
         }
         $draft = $drafts[0];
@@ -413,11 +413,115 @@ final class RBRT_Personalized_Digest_Plugin {
         return array(
             'empty' => false,
             'message' => '',
-            'content' => wp_kses_post($draft->post_content),
+            'content' => wp_kses_post($this->localize_member_digest_content($draft->post_content)),
             'title' => get_the_title($draft),
-            'updated' => $updated_gmt === '' ? '' : sprintf(__('Updated %s', 'rbrt-personalized-digest'), get_date_from_gmt($updated_gmt, get_option('date_format') . ' ' . get_option('time_format'))),
+            'updated' => $updated_gmt === '' ? '' : $this->member_updated_label($updated_gmt),
             'generation' => sanitize_key((string) get_post_meta($draft->ID, '_rbrt_digest_generation_status', true)),
         );
+    }
+
+    private function is_romanian_request() {
+        $locale = function_exists('determine_locale') ? determine_locale() : get_locale();
+        $language = isset($_POST['rbrt_digest_language'])
+            ? sanitize_text_field(wp_unslash($_POST['rbrt_digest_language']))
+            : (isset($_GET['lang']) ? sanitize_text_field(wp_unslash($_GET['lang'])) : '');
+        $request_uri = isset($_SERVER['REQUEST_URI']) ? (string) $_SERVER['REQUEST_URI'] : '';
+
+        return stripos((string) $locale, 'ro') === 0
+            || stripos($language, 'ro') === 0
+            || strpos($request_uri, 'lang=ro') !== false
+            || (bool) preg_match('#^/ro(?:_ro)?(?:/|$)#i', $request_uri);
+    }
+
+    private function member_text($text) {
+        $romanian = array(
+            'Loading your digest…' => 'Se încarcă rezumatul…',
+            'Checking for relevant updates…' => 'Se caută actualizări relevante…',
+            'Your digest could not be loaded. Please try again.' => 'Rezumatul nu a putut fi încărcat. Încercați din nou.',
+            'Personalised for you' => 'Personalizat pentru tine',
+            'My Digest' => 'Rezumatul meu',
+            'Close My Digest' => 'Închide rezumatul meu',
+            'Open My Digest' => 'Deschide rezumatul meu',
+            'Check for new updates' => 'Verifică actualizările noi',
+            'Topics, replies and directory updates matched to your interests.' => 'Subiecte, răspunsuri și actualizări din director potrivite intereselor tale.',
+            'This digest is available only to approved signed-in members.' => 'Acest rezumat este disponibil doar membrilor aprobați și autentificați.',
+            'Your digest is already being checked. Please wait a moment.' => 'Rezumatul este deja verificat. Așteptați puțin.',
+            'Your digest could not be generated. Please try again later.' => 'Rezumatul nu a putut fi generat. Încercați din nou mai târziu.',
+            'Your new personalised digest is ready.' => 'Noul rezumat personalizat este gata.',
+            'Your new digest is ready using source excerpts.' => 'Noul rezumat este gata și folosește extrase din surse.',
+            'Add interests to your profile so the bot can personalise your digest.' => 'Adăugați interese în profil pentru ca asistentul să vă personalizeze rezumatul.',
+            'You are all caught up. There are no unread updates.' => 'Sunteți la zi. Nu există actualizări necitite.',
+            'There are no unread updates matching your interests.' => 'Nu există actualizări necitite care să corespundă intereselor dvs.',
+            'Your digest check finished.' => 'Verificarea rezumatului s-a încheiat.',
+            'No digest is ready yet. Check for new updates to create your first one.' => 'Nu există încă niciun rezumat. Verificați actualizările noi pentru a-l crea pe primul.',
+            'Updated %s' => 'Actualizat %s',
+            'AI summarization was unavailable, so this draft contains concise source excerpts for review.' => 'Rezumarea AI nu a fost disponibilă, astfel că această schiță conține extrase concise din surse pentru examinare.',
+            'Forum topics' => 'Subiecte de forum',
+            'Forum replies' => 'Răspunsuri pe forum',
+            'Directory updates' => 'Actualizări din director',
+            'Community updates' => 'Actualizări din comunitate',
+        );
+
+        if ($this->is_romanian_request() && isset($romanian[$text])) {
+            return $romanian[$text];
+        }
+
+        return translate($text, 'rbrt-personalized-digest');
+    }
+
+    private function localize_member_digest_content($content) {
+        if (!$this->is_romanian_request()) {
+            return $content;
+        }
+
+        $strings = array(
+            'AI summarization was unavailable, so this draft contains concise source excerpts for review.',
+            'Forum topics',
+            'Forum replies',
+            'Directory updates',
+            'Community updates',
+        );
+        foreach ($strings as $string) {
+            $content = str_replace($string, $this->member_text($string), $content);
+        }
+
+        $content = preg_replace_callback(
+            '#Reply in (?:“|&ldquo;)(.+?)(?:”|&rdquo;)#u',
+            static function ($matches) {
+                return 'Răspuns la „' . $matches[1] . '”';
+            },
+            $content
+        );
+        $content = preg_replace_callback(
+            '#(<a\b[^>]*>)([^<]+) updated their directory profile(</a>)#u',
+            static function ($matches) {
+                return $matches[1] . $matches[2] . ' și-a actualizat profilul din director' . $matches[3];
+            },
+            $content
+        );
+        $content = preg_replace(
+            '#Hello ([^,<]+), here are the community updates most relevant to your interests\.#u',
+            'Salut $1, iată actualizările din comunitate cele mai relevante pentru interesele tale.',
+            $content
+        );
+
+        return $content;
+    }
+
+    private function member_updated_label($updated_gmt) {
+        if (!$this->is_romanian_request()) {
+            return sprintf($this->member_text('Updated %s'), get_date_from_gmt($updated_gmt, get_option('date_format') . ' ' . get_option('time_format')));
+        }
+
+        $local = get_date_from_gmt($updated_gmt, 'Y-m-d H:i');
+        $parts = date_parse_from_format('Y-m-d H:i', $local);
+        $months = array(1 => 'ianuarie', 'februarie', 'martie', 'aprilie', 'mai', 'iunie', 'iulie', 'august', 'septembrie', 'octombrie', 'noiembrie', 'decembrie');
+        if (!empty($parts['error_count']) || empty($parts['month']) || !isset($months[$parts['month']])) {
+            return sprintf($this->member_text('Updated %s'), $local);
+        }
+
+        $formatted = sprintf('%d %s %d, %02d:%02d', $parts['day'], $months[$parts['month']], $parts['year'], $parts['hour'], $parts['minute']);
+        return sprintf($this->member_text('Updated %s'), $formatted);
     }
 
     private function service() {

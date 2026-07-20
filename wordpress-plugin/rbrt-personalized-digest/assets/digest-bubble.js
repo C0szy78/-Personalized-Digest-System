@@ -19,6 +19,7 @@
         var data = new URLSearchParams();
         data.set('action', action);
         data.set('nonce', window.rbrtDigestBubble.nonce);
+        data.set('rbrt_digest_language', document.documentElement.lang || '');
         return fetch(window.rbrtDigestBubble.ajaxUrl, {
             method: 'POST',
             credentials: 'same-origin',

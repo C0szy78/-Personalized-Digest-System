@@ -51,6 +51,12 @@ assert.match(bubbleCss, /\.rbrt-profile-completeness--floating[\s\S]*?bottom:\s*
 assert.match(bubbleCss, /\.rbrt-profile-completeness--floating[\s\S]*?margin-bottom:\s*0\s*!important/, 'the profile meter plugin margin must not inflate the intended stack gap');
 assert.match(bubbleCss, /rbrt-digest-panel-open \.rbrt-profile-completeness--floating[\s\S]*?visibility:\s*hidden\s*!important/, 'the profile meter must hide while the digest panel is open');
 assert.match(bubbleJs, /document\.body\.classList\.toggle\('rbrt-digest-panel-open', open\)/, 'the digest panel must coordinate profile-meter visibility');
+assert.match(bubbleJs, /rbrt_digest_language[\s\S]*document\.documentElement\.lang/, 'frontend AJAX requests must preserve the selected site language');
+assert.match(plugin, /is_romanian_request[\s\S]*rbrt_digest_language/, 'Romanian detection must support language-aware AJAX requests');
+assert.match(plugin, /'My Digest'\s*=>\s*'Rezumatul meu'/, 'the digest launcher and panel must have a Romanian fallback');
+assert.match(plugin, /localize_member_digest_content[\s\S]*'Forum topics'[\s\S]*'Directory updates'/, 'stored plugin-owned digest headings must be localized at display time');
+assert.match(plugin, /Reply in[\s\S]*Răspuns la[\s\S]*updated their directory profile[\s\S]*și-a actualizat profilul din director/, 'plugin-generated reply and directory titles must be localized at display time');
+assert.match(plugin, /member_updated_label[\s\S]*'iulie'/, 'Romanian digest dates must use Romanian month names');
 assert.match(llm, /'stream'\s*=>\s*false/, 'Ollama Cloud responses must be non-streaming for WordPress processing');
 assert.match(llm, /'think'\s*=>\s*false/, 'thinking must be disabled for concise structured digest generation');
 assert.match(llm, /'format'\s*=>\s*\$schema/, 'LLM output must be structurally constrained');
