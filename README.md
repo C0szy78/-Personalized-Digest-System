@@ -1,153 +1,48 @@
-# 📰 Personalized Digest System
+# RBRT Personalized Digest
 
-A smart content curation system that uses AI to generate personalized article summaries based on member interests.
+Native WordPress implementation of E4-US1 for the RBRT community platform.
 
-## 🌟 Features
+The deliverable is the plugin in `wordpress-plugin/rbrt-personalized-digest/`. It operates on RBRT's existing WordPress users and PWork data instead of maintaining separate member, content, or digest databases.
 
-1. **Member Onboarding with Interest Selection**
-   - Register new members
-   - Select interest tags during onboarding
-   - Login to existing accounts
+## What the plugin does
 
-2. **Document Processing with AI (LLM Task #1)**
-   - Upload articles, forum posts, or documents manually
-   - **NEW: Fetch posts automatically from WordPress sites via REST API**
-   - **NEW: Web scraping to extract clean content from post URLs**
-   - Automatically extract relevant interest tags using Groq's LLM API
-   - Analyze content and identify primary topics
+- Reads declared member interests from `rbrt_interest_tags` and `rbrt_industry`.
+- Collects unread or changed PWork forum topics, approved forum replies, and approved directory profile updates.
+- Uses per-member UTC watermarks and immutable source keys to prevent repeated items.
+- Filters and ranks updates by interest before any LLM request.
+- Calls the Ollama Cloud API for one concise, source-labelled digest.
+- Stores the result as a private `rbrt_digest` WordPress post with `post_status=draft`.
+- Creates a deterministic reviewable fallback draft if the LLM is unavailable.
+- Supports protected manual generation and batched daily WordPress Cron processing.
 
-3. **Personalized Digest Generation (LLM Task #2)**
-   - Generate customized summaries for each member
-   - Weight content based on matching interest tags
-   - Store digests as drafts for review
+Generated drafts are never automatically published or emailed.
 
-4. **Interest Management**
-   - Update interest preferences anytime
-   - View digest statistics
-   - Track published vs draft digests
+## Installation
 
-5. **WordPress Integration**
-   - Fetch posts from any WordPress site using REST API
-   - Automatic web scraping of post content
-   - Bulk processing of multiple posts
-   - One-click integration with AI analysis
+1. Create a ZIP whose root folder is `rbrt-personalized-digest/`.
+2. Upload it through WordPress Admin → Plugins → Add Plugin → Upload Plugin.
+3. Activate **RBRT Personalized Digest**.
+4. Open Users → Personalized Digests.
 
-## 🚀 Setup Instructions
+Configure the API key outside the plugin using the PHP environment variable `OLLAMA_API_KEY` or in `wp-config.php`:
 
-### 1. Install Dependencies
-
-```bash
-pip install -r requirements.txt
+```php
+define('RBRT_DIGEST_OLLAMA_API_KEY', '...');
 ```
 
+The optional `OLLAMA_MODEL`/`RBRT_DIGEST_OLLAMA_MODEL` setting defaults to `kimi-k2.6`. A repository `.env` file is ignored by Git, but WordPress must expose its value to PHP as an environment variable or constant.
 
+## Tests
 
-### 3. Run the Application
-
-```bash
-streamlit run src/app.py
+```powershell
+php tests/e4-us1-personalized-digest.php
+node --test tests/e4-us1-personalized-digest.test.js
 ```
 
-The application will open in your browser at `http://localhost:8501`
+The suites cover all three sources, unread boundaries, legacy empty timestamps, interest filtering, short-term whole-word matching, deduplication, LLM failure, watermark safety, and actual WordPress draft arguments.
 
-## 📖 How to Use
+See `docs/e4-us1-personalized-digest-summary.md` for the implementation contract and staging evidence.
 
-### Step 1: Member Onboarding
-1. Go to **Member Onboarding** page
-2. Register with your name and email
-3. Select your interest tags (Technology, AI/ML, Health, Business, etc.)
-4. Click Register
+## Legacy prototype
 
-### Step 2: Upload Documents (Manual or WordPress)
-
-#### Option A: Manual Upload
-1. Go to **Upload Document** page
-2. Enter document title and content
-3. Select source type (Article/Forum/Document)
-4. Click "Upload & Process"
-5. The system will use **LLM Task #1** to extract interest tags
-6. Generate personalized digests for all members
-
-#### Option B: Fetch from WordPress
-1. Go to **Fetch WordPress Posts** page
-2. Enter WordPress site URL (e.g., https://domain1.badev.tools)
-3. Set number of posts to fetch
-4. Click "🔍 Fetch Posts"
-5. The system will:
-   - Fetch posts via WordPress REST API
-   - Scrape clean content from each post URL
-   - Display all posts with previews
-6. Process individual posts or all at once
-7. AI automatically extracts tags and generates digests
-
-### Step 3: View Your Digests
-1. Go to **View Digests** page
-2. See all your personalized summaries
-3. Digests are sorted by relevance to your interests
-4. View matching interest tags
-5. Publish or read full documents
-
-### Step 4: Manage Interests
-1. Go to **Manage Interests** page
-2. Update your interest selections anytime
-3. Future digests will reflect your new preferences
-
-## 🤖 LLM Integration
-
-The system uses Groq's LLM API (llama-3.3-70b-versatile) for two main tasks:
-
-### LLM Task #1: Interest Tag Extraction
-- **Input**: Raw document content + available interest tags
-- **Process**: LLM analyzes content and identifies relevant categories
-- **Output**: JSON with extracted tags, primary topic, and confidence level
-
-### LLM Task #2: Personalized Digest Generation
-- **Input**: Document content + member interests + extracted tags
-- **Process**: LLM creates customized summary weighted by matching interests
-- **Output**: Personalized summary text emphasizing relevant aspects
-
-## 📊 Database Schema
-
-- **Members**: User accounts with names and emails
-- **Interests**: Predefined interest categories
-- **Documents**: Uploaded content with extracted tags
-- **Digests**: Personalized summaries for each member-document pair
-
-## 🛠️ Technology Stack
-
-- **Frontend**: Streamlit
-- **Backend**: Python, SQLAlchemy
-- **Database**: SQLite
-- **LLM API**: Groq (llama-3.3-70b-versatile)
-- **Libraries**: python-dotenv, pydantic
-
-## 📂 Project Structure
-
-```
-tag_ai/
-├── src/
-│   ├── app.py           # Main Streamlit application
-│   ├── database.py      # Database models and setup
-│   ├── llm_service.py   # Groq LLM integration
-│   └── __init__.py
-├── .env                 # Environment variables (API key)
-├── requirements.txt     # Python dependencies
-└── README.md           # This file
-```
-
-## 💡 Key Highlights
-
-- ✅ **Two LLM Tasks**: Content analysis AND personalized summarization
-- ✅ **Interest-based Weighting**: Summaries prioritize matching topics
-- ✅ **Dynamic Preferences**: Update interests anytime
-- ✅ **Draft System**: Review digests before publishing
-- ✅ **Relevance Scoring**: Track how well content matches interests
-
-## 🎯 Use Cases
-
-- Personal news aggregation
-- Research paper summaries
-- Corporate knowledge sharing
-- Educational content curation
-- Community forum digests
-
+The existing `src/` Streamlit/SQLite/Groq application is retained temporarily for review history. It is not the E4-US1 RBRT integration because it creates separate members and documents, fetches generic WordPress posts, and does not use RBRT's PWork unread state or WordPress draft records.
