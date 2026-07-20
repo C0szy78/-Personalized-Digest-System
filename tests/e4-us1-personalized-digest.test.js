@@ -10,6 +10,8 @@ const repository = read('includes/class-rbrt-digest-wordpress-repository.php');
 const service = read('includes/class-rbrt-digest-service.php');
 const llm = read('includes/class-rbrt-digest-ai-summarizer.php');
 const plugin = read('includes/class-rbrt-personalized-digest-plugin.php');
+const bubbleJs = read('assets/digest-bubble.js');
+const bubbleCss = read('assets/digest-bubble.css');
 
 assert.match(repository, /'post_type'\s*=>\s*'pworkforum'/, 'topics must use PWork forum posts');
 assert.match(repository, /get_post_meta\(\$post->ID, 'pwork_forum_content'/, 'topic content must use PWork forum metadata');
@@ -34,6 +36,17 @@ assert.match(plugin, /current_user_can\('manage_options'\)[\s\S]*check_admin_ref
 assert.match(plugin, /type="password"[\s\S]*leave blank to keep/i, 'the key must be replaceable without being displayed');
 assert.match(plugin, /remove_api_key/, 'the saved API key must be removable from settings');
 assert.match(plugin, /rbrt_digest_test_ai/, 'the settings page must provide a saved-connection test');
+assert.match(plugin, /wp_ajax_rbrt_digest_member_latest/, 'signed-in members must be able to load their own latest digest');
+assert.match(plugin, /wp_ajax_rbrt_digest_member_generate/, 'signed-in members must be able to request an on-demand digest check');
+assert.match(plugin, /\$this->member_bubble_rendered \|\|[\s\S]*?\$this->member_bubble_rendered = true/, 'themes that fire the footer twice must still render only one bubble');
+assert.match(plugin, /check_ajax_referer\('rbrt_digest_member_bubble', 'nonce'\)/, 'member bubble requests must require a WordPress nonce');
+assert.match(plugin, /get_user_meta\(get_current_user_id\(\), 'pw_user_status', true\) === 'approved'/, 'the member bubble must be restricted to approved signed-in accounts');
+assert.match(plugin, /'meta_key'\s*=>\s*'_rbrt_digest_member_id'[\s\S]*?'meta_value'\s*=>\s*\(int\) \$member_id/, 'the bubble must query only the current member digest record');
+assert.match(plugin, /_rbrt_digest_window_end_gmt[\s\S]*?post_modified_gmt/, 'the displayed digest date must use its real window boundary with a safe fallback');
+assert.match(bubbleJs, /credentials:\s*'same-origin'/, 'frontend digest requests must keep the signed-in WordPress session');
+assert.match(bubbleJs, /rbrt_digest_member_latest[\s\S]*rbrt_digest_member_generate/, 'the bubble must load the latest digest and support secure refresh');
+assert.match(bubbleCss, /position:\s*fixed[\s\S]*z-index:\s*99998/, 'the digest launcher must be a visible floating frontend control');
+assert.match(bubbleCss, /@media \(max-width: 600px\)/, 'the digest bubble must include a mobile layout');
 assert.match(llm, /'stream'\s*=>\s*false/, 'Ollama Cloud responses must be non-streaming for WordPress processing');
 assert.match(llm, /'think'\s*=>\s*false/, 'thinking must be disabled for concise structured digest generation');
 assert.match(llm, /'format'\s*=>\s*\$schema/, 'LLM output must be structurally constrained');

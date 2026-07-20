@@ -14,8 +14,9 @@ The deliverable is the plugin in `wordpress-plugin/rbrt-personalized-digest/`. I
 - Stores the result as a private `rbrt_digest` WordPress post with `post_status=draft`.
 - Creates a deterministic reviewable fallback draft if the LLM is unavailable.
 - Supports protected manual generation and batched daily WordPress Cron processing.
+- Adds a floating **My Digest** bubble for approved signed-in members to read their latest digest and securely check for new relevant updates.
 
-Generated drafts are never automatically published or emailed.
+Generated records remain WordPress drafts and are never automatically published or emailed. A draft is visible only to its intended signed-in member through the protected bubble and to authorised WordPress administrators.
 
 ## Installation
 

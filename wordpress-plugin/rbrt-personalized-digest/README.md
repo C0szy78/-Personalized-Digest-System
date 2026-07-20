@@ -29,6 +29,7 @@ If the API is missing, unavailable, or returns invalid output, a deterministic s
 ## Administration and scheduling
 
 - Go to **Users → Personalized Digests** to generate and review member drafts.
+- Approved signed-in members see a floating **My Digest** button on frontend pages. It loads only that member's latest digest and can securely trigger a new unread-window check.
 - Generated records use the private `rbrt_digest` post type and the real WordPress `draft` status.
 - Daily processing uses WordPress Cron and batches ten approved members at a time.
 - Drafts are never emailed or published automatically.

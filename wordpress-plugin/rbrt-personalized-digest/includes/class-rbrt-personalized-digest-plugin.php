@@ -5,6 +5,7 @@ defined('ABSPATH') || exit;
 final class RBRT_Personalized_Digest_Plugin {
     private static $instance;
     private $profile_timestamp_guard = false;
+    private $member_bubble_rendered = false;
 
     public static function instance() {
         if (!self::$instance) {
@@ -19,6 +20,10 @@ final class RBRT_Personalized_Digest_Plugin {
         add_action('admin_post_rbrt_digest_save_ai_settings', array($this, 'handle_save_ai_settings'));
         add_action('admin_post_rbrt_digest_test_ai', array($this, 'handle_test_ai'));
         add_action('admin_post_rbrt_digest_generate_member', array($this, 'handle_generate_member'));
+        add_action('wp_enqueue_scripts', array($this, 'enqueue_member_bubble_assets'));
+        add_action('wp_footer', array($this, 'render_member_bubble'));
+        add_action('wp_ajax_rbrt_digest_member_latest', array($this, 'handle_member_latest'));
+        add_action('wp_ajax_rbrt_digest_member_generate', array($this, 'handle_member_generate'));
         add_action('rbrt_digest_daily_event', array($this, 'start_daily_batches'));
         add_action('rbrt_digest_process_batch', array($this, 'process_scheduled_batch'));
         add_action('added_user_meta', array($this, 'record_material_profile_meta_change'), 10, 4);
@@ -217,6 +222,86 @@ final class RBRT_Personalized_Digest_Plugin {
         exit;
     }
 
+    public function enqueue_member_bubble_assets() {
+        if (!$this->can_use_member_bubble()) {
+            return;
+        }
+        wp_enqueue_style('rbrt-digest-bubble', RBRT_DIGEST_URL . 'assets/digest-bubble.css', array(), RBRT_DIGEST_VERSION);
+        wp_enqueue_script('rbrt-digest-bubble', RBRT_DIGEST_URL . 'assets/digest-bubble.js', array(), RBRT_DIGEST_VERSION, true);
+        wp_localize_script('rbrt-digest-bubble', 'rbrtDigestBubble', array(
+            'ajaxUrl' => admin_url('admin-ajax.php'),
+            'nonce' => wp_create_nonce('rbrt_digest_member_bubble'),
+            'loading' => __('Loading your digest…', 'rbrt-personalized-digest'),
+            'generating' => __('Checking for relevant updates…', 'rbrt-personalized-digest'),
+            'error' => __('Your digest could not be loaded. Please try again.', 'rbrt-personalized-digest'),
+        ));
+    }
+
+    public function render_member_bubble() {
+        if ($this->member_bubble_rendered || !$this->can_use_member_bubble()) {
+            return;
+        }
+        $this->member_bubble_rendered = true;
+        ?>
+        <div class="rbrt-digest-bot" data-rbrt-digest-bot>
+            <section class="rbrt-digest-panel" id="rbrt-digest-panel" role="dialog" aria-modal="false" aria-labelledby="rbrt-digest-title" hidden>
+                <header class="rbrt-digest-panel__header">
+                    <div><span class="rbrt-digest-panel__eyebrow"><?php echo esc_html__('Personalised for you', 'rbrt-personalized-digest'); ?></span><h2 id="rbrt-digest-title"><?php echo esc_html__('My Digest', 'rbrt-personalized-digest'); ?></h2></div>
+                    <button class="rbrt-digest-panel__close" type="button" aria-label="<?php echo esc_attr__('Close My Digest', 'rbrt-personalized-digest'); ?>">&times;</button>
+                </header>
+                <div class="rbrt-digest-panel__body">
+                    <div class="rbrt-digest-panel__status" role="status" aria-live="polite"></div>
+                    <div class="rbrt-digest-panel__content"></div>
+                </div>
+                <footer class="rbrt-digest-panel__footer">
+                    <button class="rbrt-digest-panel__refresh" type="button"><?php echo esc_html__('Check for new updates', 'rbrt-personalized-digest'); ?></button>
+                    <span><?php echo esc_html__('Topics, replies and directory updates matched to your interests.', 'rbrt-personalized-digest'); ?></span>
+                </footer>
+            </section>
+            <button class="rbrt-digest-launcher" type="button" aria-expanded="false" aria-controls="rbrt-digest-panel" aria-label="<?php echo esc_attr__('Open My Digest', 'rbrt-personalized-digest'); ?>">
+                <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M4 4h16a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H9l-5 4v-4a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2Zm3 5a1 1 0 1 0 0 2 1 1 0 0 0 0-2Zm5 0a1 1 0 1 0 0 2 1 1 0 0 0 0-2Zm5 0a1 1 0 1 0 0 2 1 1 0 0 0 0-2Z"/></svg>
+                <span><?php echo esc_html__('My Digest', 'rbrt-personalized-digest'); ?></span>
+            </button>
+        </div>
+        <?php
+    }
+
+    public function handle_member_latest() {
+        check_ajax_referer('rbrt_digest_member_bubble', 'nonce');
+        if (!$this->can_use_member_bubble()) {
+            wp_send_json_error(array('message' => __('This digest is available only to approved signed-in members.', 'rbrt-personalized-digest')), 403);
+        }
+        wp_send_json_success($this->member_digest_payload(get_current_user_id()));
+    }
+
+    public function handle_member_generate() {
+        check_ajax_referer('rbrt_digest_member_bubble', 'nonce');
+        if (!$this->can_use_member_bubble()) {
+            wp_send_json_error(array('message' => __('This digest is available only to approved signed-in members.', 'rbrt-personalized-digest')), 403);
+        }
+        $member_id = get_current_user_id();
+        $lock_key = '_rbrt_digest_member_lock_' . $member_id;
+        if (get_transient($lock_key)) {
+            wp_send_json_error(array('message' => __('Your digest is already being checked. Please wait a moment.', 'rbrt-personalized-digest')), 429);
+        }
+        set_transient($lock_key, 1, 2 * MINUTE_IN_SECONDS);
+        $result = $this->service()->generate_for_member($member_id);
+        delete_transient($lock_key);
+        if (is_wp_error($result)) {
+            wp_send_json_error(array('message' => __('Your digest could not be generated. Please try again later.', 'rbrt-personalized-digest')), 500);
+        }
+        $messages = array(
+            'ai' => __('Your new personalised digest is ready.', 'rbrt-personalized-digest'),
+            'fallback' => __('Your new digest is ready using source excerpts.', 'rbrt-personalized-digest'),
+            'no_interests' => __('Add interests to your profile so the bot can personalise your digest.', 'rbrt-personalized-digest'),
+            'no_updates' => __('You are all caught up. There are no unread updates.', 'rbrt-personalized-digest'),
+            'no_relevant_updates' => __('There are no unread updates matching your interests.', 'rbrt-personalized-digest'),
+        );
+        $payload = $this->member_digest_payload($member_id);
+        $payload['message'] = isset($messages[$result['status']]) ? $messages[$result['status']] : __('Your digest check finished.', 'rbrt-personalized-digest');
+        wp_send_json_success($payload);
+    }
+
     public function start_daily_batches() {
         $summarizer = new RBRT_Digest_AI_Summarizer();
         if (!$summarizer->is_configured()) {
@@ -292,6 +377,47 @@ final class RBRT_Personalized_Digest_Plugin {
             'rbrt_interest_tags', 'rbrt_industry', 'pwork_company', 'pwork_job', 'pwork_location',
             'company', 'business_name', 'industry', 'sector', 'location', 'city', 'description', 'pw_user_status',
         ));
+    }
+
+    private function can_use_member_bubble() {
+        if (!is_user_logged_in()) {
+            return false;
+        }
+        return get_user_meta(get_current_user_id(), 'pw_user_status', true) === 'approved';
+    }
+
+    private function member_digest_payload($member_id) {
+        $drafts = get_posts(array(
+            'post_type' => 'rbrt_digest',
+            'post_status' => 'draft',
+            'posts_per_page' => 1,
+            'orderby' => 'date',
+            'order' => 'DESC',
+            'author' => (int) $member_id,
+            'meta_key' => '_rbrt_digest_member_id',
+            'meta_value' => (int) $member_id,
+        ));
+        if (!$drafts) {
+            return array(
+                'empty' => true,
+                'message' => __('No digest is ready yet. Check for new updates to create your first one.', 'rbrt-personalized-digest'),
+                'content' => '',
+                'title' => __('My Digest', 'rbrt-personalized-digest'),
+            );
+        }
+        $draft = $drafts[0];
+        $updated_gmt = RBRT_Digest_Core::normalize_datetime(get_post_meta($draft->ID, '_rbrt_digest_window_end_gmt', true));
+        if ($updated_gmt === '') {
+            $updated_gmt = RBRT_Digest_Core::normalize_datetime($draft->post_modified_gmt);
+        }
+        return array(
+            'empty' => false,
+            'message' => '',
+            'content' => wp_kses_post($draft->post_content),
+            'title' => get_the_title($draft),
+            'updated' => $updated_gmt === '' ? '' : sprintf(__('Updated %s', 'rbrt-personalized-digest'), get_date_from_gmt($updated_gmt, get_option('date_format') . ' ' . get_option('time_format'))),
+            'generation' => sanitize_key((string) get_post_meta($draft->ID, '_rbrt_digest_generation_status', true)),
+        );
     }
 
     private function service() {

@@ -1,7 +1,7 @@
 # E4-US1 Personalized Digest — Implementation and Verification
 
 Date: 2026-07-20
-Plugin: `RBRT Personalized Digest` v1.2.1
+Plugin: `RBRT Personalized Digest` v1.3.2
 Master source: `wordpress-plugin/rbrt-personalized-digest/`
 
 ## Outcome
@@ -53,6 +53,14 @@ The plugin renders final HTML itself. This guarantees the three source headings 
 - Drafts are never emailed or published automatically.
 - Users → Personalized Digests provides a protected manual generator and recent-draft review table.
 
+## Member-facing digest bot
+
+- Approved signed-in members receive a floating **My Digest** bubble on frontend pages; signed-out and unapproved accounts do not receive its markup or assets.
+- Opening the accessible panel loads only the current member's latest digest through a nonce-protected authenticated WordPress AJAX request.
+- **Check for new updates** runs the same unread, interest-ranked, deduplicated pipeline for the current member and refreshes the panel without exposing another member ID to the browser.
+- A short per-member lock prevents concurrent generation requests. The close control, Escape key, keyboard focus styles, live status updates, constrained scrolling, and compact mobile layout are included.
+- Draft HTML is sanitised by WordPress before storage and again before it is returned to the intended member.
+
 ## Automation
 
 A daily WordPress Cron event starts batched processing for approved PWork members. Batches default to ten members and continue through single follow-up events. Automated runs are skipped until the selected provider, model, endpoint, and key are configured.
@@ -77,7 +85,9 @@ A daily WordPress Cron event starts batched processing for approved PWork member
 
 ## Staging verification
 
-The current branch was packaged as the unique-folder v1.2.1 build and activated on `https://domain1.badev.tools` on 2026-07-20. The v1.0.0, v1.1.0, and v1.2.0 copies are inactive, exactly one Personalized Digest copy is active, and production was not touched.
+The current branch was packaged as the unique-folder v1.3.2 build and activated on `https://domain1.badev.tools` on 2026-07-20. The prior verification copies are inactive, exactly one Personalized Digest copy is active, and production was not touched.
+
+Authenticated frontend verification on the real PWork dashboard confirmed one bubble container, one launcher, one panel, one JavaScript asset, and one stylesheet. The PWork theme fires `wp_footer` twice, so v1.3.1 added a one-per-request render guard after the first staging build revealed duplicate containers. The panel loaded Cosmin-Gabriel's existing 12-item digest with all three source headings, a valid `Updated July 20, 2026 9:37 am` boundary, working source links, and no other member's digest. The on-demand action returned `You are all caught up. There are no unread updates.`, re-enabled its button, and did not create a duplicate digest. The close button hid the panel and restored the launcher's collapsed accessibility state. v1.3.2 uses the stored digest-window boundary instead of WordPress's zero draft date, fixing the invalid date found during live verification.
 
 The live **Users → Personalized Digests** page now provides:
 
@@ -100,8 +110,8 @@ The earlier v1.0.0 staging pass established the WordPress/PWork collection and f
 - The corrected package was installed over the staging copy while keeping the plugin active. A repeat run then returned `No unread updates were found`, created no additional draft, and advanced the watermark to close the checked window. The invalid repeat test draft was moved to the WordPress Bin (recoverable), leaving one valid staging draft.
 - Live Ollama Cloud connectivity from staging WordPress is verified. Automated tests cover both model success and LLM failure; the earlier deterministic fallback draft remains as evidence of the safe failure path.
 
-Staging package: `rbrt-personalized-digest-v1.2.1.zip`
-SHA-256: `BA5A004B46B65FE55F2347B2A3663D6C68E680DBC76D3E570F7541DBC78347B6`
+Staging package: `rbrt-personalized-digest-v1.3.2.zip`
+SHA-256: `E53F050F64235C7C66CAC96A34B6E032C2E1F4DCD43079EC91ED74E9CCCBB13B`
 
 ## Pull-request status
 
