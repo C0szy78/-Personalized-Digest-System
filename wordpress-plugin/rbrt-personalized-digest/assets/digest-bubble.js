@@ -66,6 +66,7 @@
         panel.hidden = !open;
         launcher.setAttribute('aria-expanded', open ? 'true' : 'false');
         root.classList.toggle('is-open', open);
+        document.body.classList.toggle('rbrt-digest-panel-open', open);
         if (open) {
             closeButton.focus();
             if (!loaded) {
@@ -103,5 +104,9 @@
             busy = false;
             refreshButton.disabled = false;
         });
+    });
+
+    window.addEventListener('pagehide', function () {
+        document.body.classList.remove('rbrt-digest-panel-open');
     });
 }());

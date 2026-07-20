@@ -46,7 +46,11 @@ assert.match(plugin, /_rbrt_digest_window_end_gmt[\s\S]*?post_modified_gmt/, 'th
 assert.match(bubbleJs, /credentials:\s*'same-origin'/, 'frontend digest requests must keep the signed-in WordPress session');
 assert.match(bubbleJs, /rbrt_digest_member_latest[\s\S]*rbrt_digest_member_generate/, 'the bubble must load the latest digest and support secure refresh');
 assert.match(bubbleCss, /position:\s*fixed[\s\S]*z-index:\s*99998/, 'the digest launcher must be a visible floating frontend control');
-assert.match(bubbleCss, /@media \(max-width: 600px\)/, 'the digest bubble must include a mobile layout');
+assert.match(bubbleCss, /@media \(max-width: 767px\)/, 'the digest bubble must include a compact small-screen layout');
+assert.match(bubbleCss, /\.rbrt-profile-completeness--floating[\s\S]*?bottom:\s*calc\(94px[\s\S]*?!important/, 'the profile meter must stack above the desktop digest launcher');
+assert.match(bubbleCss, /\.rbrt-profile-completeness--floating[\s\S]*?margin-bottom:\s*0\s*!important/, 'the profile meter plugin margin must not inflate the intended stack gap');
+assert.match(bubbleCss, /rbrt-digest-panel-open \.rbrt-profile-completeness--floating[\s\S]*?visibility:\s*hidden\s*!important/, 'the profile meter must hide while the digest panel is open');
+assert.match(bubbleJs, /document\.body\.classList\.toggle\('rbrt-digest-panel-open', open\)/, 'the digest panel must coordinate profile-meter visibility');
 assert.match(llm, /'stream'\s*=>\s*false/, 'Ollama Cloud responses must be non-streaming for WordPress processing');
 assert.match(llm, /'think'\s*=>\s*false/, 'thinking must be disabled for concise structured digest generation');
 assert.match(llm, /'format'\s*=>\s*\$schema/, 'LLM output must be structurally constrained');

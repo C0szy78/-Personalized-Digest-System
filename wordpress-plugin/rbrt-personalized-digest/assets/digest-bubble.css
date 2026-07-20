@@ -5,7 +5,7 @@
     position: fixed;
     z-index: 99998;
     right: 24px;
-    bottom: 24px;
+    bottom: calc(24px + env(safe-area-inset-bottom, 0px));
     font-family: inherit;
 }
 
@@ -29,6 +29,20 @@
 .rbrt-digest-launcher:focus-visible,
 .rbrt-digest-panel button:focus-visible { outline: 3px solid var(--rbrt-digest-gold); outline-offset: 3px; }
 .rbrt-digest-bot.is-open .rbrt-digest-launcher { visibility: hidden; }
+
+/* Coordinate with Profile Meter without coupling either plugin's PHP. */
+.rbrt-profile-completeness--floating {
+    right: 24px !important;
+    bottom: calc(94px + env(safe-area-inset-bottom, 0px)) !important;
+    margin-bottom: 0 !important;
+    transition: bottom .2s ease, opacity .16s ease, visibility .16s ease !important;
+}
+
+body.rbrt-digest-panel-open .rbrt-profile-completeness--floating {
+    visibility: hidden !important;
+    opacity: 0 !important;
+    pointer-events: none !important;
+}
 
 .rbrt-digest-panel {
     width: min(430px, calc(100vw - 32px));
@@ -66,10 +80,11 @@
 .rbrt-digest-panel__refresh:disabled { cursor: wait; opacity: .65; }
 .rbrt-digest-panel__footer span { display: block; margin-top: 9px; color: #657475; font-size: 11px; line-height: 1.4; text-align: center; }
 
-@media (max-width: 600px) {
-    .rbrt-digest-bot { right: 16px; bottom: 16px; }
+@media (max-width: 767px) {
+    .rbrt-digest-bot { right: 16px; bottom: calc(16px + env(safe-area-inset-bottom, 0px)); }
     .rbrt-digest-launcher { width: 56px; padding: 0; justify-content: center; }
     .rbrt-digest-launcher span { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0,0,0,0); }
+    .rbrt-profile-completeness--floating { right: 16px !important; bottom: calc(84px + env(safe-area-inset-bottom, 0px)) !important; }
     .rbrt-digest-panel { max-height: calc(100vh - 32px); }
     .rbrt-digest-panel__body { max-height: calc(100vh - 235px); }
 }

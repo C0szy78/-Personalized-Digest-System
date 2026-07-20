@@ -1,7 +1,7 @@
 # E4-US1 Personalized Digest — Implementation and Verification
 
 Date: 2026-07-20
-Plugin: `RBRT Personalized Digest` v1.3.2
+Plugin: `RBRT Personalized Digest` v1.3.4
 Master source: `wordpress-plugin/rbrt-personalized-digest/`
 
 ## Outcome
@@ -85,9 +85,11 @@ A daily WordPress Cron event starts batched processing for approved PWork member
 
 ## Staging verification
 
-The current branch was packaged as the unique-folder v1.3.2 build and activated on `https://domain1.badev.tools` on 2026-07-20. The prior verification copies are inactive, exactly one Personalized Digest copy is active, and production was not touched.
+The current branch was packaged as the unique-folder v1.3.4 build and activated on `https://domain1.badev.tools` on 2026-07-20. The prior verification copies are inactive, exactly one Personalized Digest copy is active, and production was not touched.
 
 Authenticated frontend verification on the real PWork dashboard confirmed one bubble container, one launcher, one panel, one JavaScript asset, and one stylesheet. The PWork theme fires `wp_footer` twice, so v1.3.1 added a one-per-request render guard after the first staging build revealed duplicate containers. The panel loaded Cosmin-Gabriel's existing 12-item digest with all three source headings, a valid `Updated July 20, 2026 9:37 am` boundary, working source links, and no other member's digest. The on-demand action returned `You are all caught up. There are no unread updates.`, re-enabled its button, and did not create a duplicate digest. The close button hid the panel and restored the launcher's collapsed accessibility state. v1.3.2 uses the stored digest-window boundary instead of WordPress's zero draft date, fixing the invalid date found during live verification.
+
+v1.3.4 coordinates the Digest bubble with Profile Meter's `.rbrt-profile-completeness--floating` control. Live desktop geometry measured the 76px meter directly above the 56px Digest launcher with an exact 14px gap, aligned right edges, and no overlap. Opening My Digest set the meter to hidden, opacity zero, and pointer-events none; closing restored visible/interactive state. At the 390×844 responsive breakpoint the Digest launcher became a 56px icon, the 72px meter remained aligned above it with an exact 12px gap, and both controls stayed within the right and bottom viewport edges. Safe-area insets are included for mobile browser chrome.
 
 The live **Users → Personalized Digests** page now provides:
 
@@ -110,8 +112,8 @@ The earlier v1.0.0 staging pass established the WordPress/PWork collection and f
 - The corrected package was installed over the staging copy while keeping the plugin active. A repeat run then returned `No unread updates were found`, created no additional draft, and advanced the watermark to close the checked window. The invalid repeat test draft was moved to the WordPress Bin (recoverable), leaving one valid staging draft.
 - Live Ollama Cloud connectivity from staging WordPress is verified. Automated tests cover both model success and LLM failure; the earlier deterministic fallback draft remains as evidence of the safe failure path.
 
-Staging package: `rbrt-personalized-digest-v1.3.2.zip`
-SHA-256: `E53F050F64235C7C66CAC96A34B6E032C2E1F4DCD43079EC91ED74E9CCCBB13B`
+Staging package: `rbrt-personalized-digest-v1.3.4.zip`
+SHA-256: `CF51959C1B8B390078E0500BCDAE01EF264E8C8EEC96A479EF489DEF97785B7A`
 
 ## Pull-request status
 
