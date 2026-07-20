@@ -10,7 +10,7 @@ The deliverable is the plugin in `wordpress-plugin/rbrt-personalized-digest/`. I
 - Collects unread or changed PWork forum topics, approved forum replies, and approved directory profile updates.
 - Uses per-member UTC watermarks and immutable source keys to prevent repeated items.
 - Filters and ranks updates by interest before any LLM request.
-- Calls the Ollama Cloud API for one concise, source-labelled digest.
+- Calls the selected AI provider for one concise, source-labelled digest.
 - Stores the result as a private `rbrt_digest` WordPress post with `post_status=draft`.
 - Creates a deterministic reviewable fallback draft if the LLM is unavailable.
 - Supports protected manual generation and batched daily WordPress Cron processing.
@@ -24,13 +24,9 @@ Generated drafts are never automatically published or emailed.
 3. Activate **RBRT Personalized Digest**.
 4. Open Users → Personalized Digests.
 
-Configure the API key outside the plugin using the PHP environment variable `OLLAMA_API_KEY` or in `wp-config.php`:
+Under **Users → Personalized Digests → AI provider settings**, choose Ollama Cloud, OpenAI, Anthropic, Google Gemini, xAI/Grok, or Custom endpoint. The model, HTTPS endpoint, and request format are editable. Entering a key replaces the existing key; leaving it blank keeps the existing key; the removal checkbox deletes it.
 
-```php
-define('RBRT_DIGEST_OLLAMA_API_KEY', '...');
-```
-
-The optional `OLLAMA_MODEL`/`RBRT_DIGEST_OLLAMA_MODEL` setting defaults to `kimi-k2.6`. A repository `.env` file is ignored by Git, but WordPress must expose its value to PHP as an environment variable or constant.
+The key is encrypted with the WordPress site's secret salts, saved as a non-autoloaded WordPress option, and never displayed after saving. Provider-specific PHP environment variables (`OLLAMA_API_KEY`, `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GEMINI_API_KEY`, or `XAI_API_KEY`) remain optional deployment overrides. Do not place credentials in plugin source or Git.
 
 ## Tests
 

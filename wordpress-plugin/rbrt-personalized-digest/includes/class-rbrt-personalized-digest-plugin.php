@@ -16,6 +16,8 @@ final class RBRT_Personalized_Digest_Plugin {
     private function __construct() {
         add_action('init', array($this, 'register_digest_post_type'));
         add_action('admin_menu', array($this, 'register_admin_page'));
+        add_action('admin_post_rbrt_digest_save_ai_settings', array($this, 'handle_save_ai_settings'));
+        add_action('admin_post_rbrt_digest_test_ai', array($this, 'handle_test_ai'));
         add_action('admin_post_rbrt_digest_generate_member', array($this, 'handle_generate_member'));
         add_action('rbrt_digest_daily_event', array($this, 'start_daily_batches'));
         add_action('rbrt_digest_process_batch', array($this, 'process_scheduled_batch'));
@@ -73,7 +75,10 @@ final class RBRT_Personalized_Digest_Plugin {
         $repository = new RBRT_Digest_WordPress_Repository();
         $member_ids = $repository->get_approved_member_ids();
         $members = array_filter(array_map('get_userdata', $member_ids));
-        $summarizer = new RBRT_Digest_Ollama_Summarizer();
+        $summarizer = new RBRT_Digest_AI_Summarizer();
+        $ai_settings = $summarizer->settings();
+        $providers = RBRT_Digest_AI_Summarizer::providers();
+        $protocols = RBRT_Digest_AI_Summarizer::protocols();
         $notice = isset($_GET['rbrt_digest_notice']) ? sanitize_key(wp_unslash($_GET['rbrt_digest_notice'])) : '';
         ?>
         <div class="wrap">
@@ -84,13 +89,34 @@ final class RBRT_Personalized_Digest_Plugin {
                 <div class="notice notice-info"><p><?php echo esc_html($this->notice_text($notice)); ?></p></div>
             <?php endif; ?>
 
-            <table class="widefat striped" style="max-width:760px;margin:18px 0;">
-                <tbody>
-                    <tr><th><?php echo esc_html__('Ollama Cloud configuration', 'rbrt-personalized-digest'); ?></th><td><?php echo $summarizer->is_configured() ? esc_html__('Configured', 'rbrt-personalized-digest') : esc_html__('Not configured — manual runs use a deterministic fallback draft', 'rbrt-personalized-digest'); ?></td></tr>
-                    <tr><th><?php echo esc_html__('Required environment variable or constant', 'rbrt-personalized-digest'); ?></th><td><code>OLLAMA_API_KEY</code> / <code>RBRT_DIGEST_OLLAMA_API_KEY</code></td></tr>
-                    <tr><th><?php echo esc_html__('Scheduled processing', 'rbrt-personalized-digest'); ?></th><td><?php echo esc_html__('Daily, in small batches; skipped until the API key is configured.', 'rbrt-personalized-digest'); ?></td></tr>
-                </tbody>
-            </table>
+            <h2><?php echo esc_html__('AI provider settings', 'rbrt-personalized-digest'); ?></h2>
+            <?php if (current_user_can('manage_options')) : ?>
+                <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" style="max-width:900px;">
+                    <input type="hidden" name="action" value="rbrt_digest_save_ai_settings">
+                    <?php wp_nonce_field('rbrt_digest_save_ai_settings'); ?>
+                    <table class="form-table" role="presentation">
+                        <tr><th><label for="rbrt-digest-provider"><?php echo esc_html__('Provider', 'rbrt-personalized-digest'); ?></label></th><td><select id="rbrt-digest-provider" name="provider"><?php foreach ($providers as $key => $provider) : ?><option value="<?php echo esc_attr($key); ?>" data-model="<?php echo esc_attr($provider['model']); ?>" data-endpoint="<?php echo esc_attr($provider['endpoint']); ?>" data-protocol="<?php echo esc_attr($provider['protocol']); ?>" <?php selected($ai_settings['provider'], $key); ?>><?php echo esc_html($provider['label']); ?></option><?php endforeach; ?></select></td></tr>
+                        <tr><th><label for="rbrt-digest-model"><?php echo esc_html__('Model', 'rbrt-personalized-digest'); ?></label></th><td><input class="regular-text" id="rbrt-digest-model" name="model" value="<?php echo esc_attr($ai_settings['model']); ?>" required><p class="description"><?php echo esc_html__('Editable model identifier supplied by your provider.', 'rbrt-personalized-digest'); ?></p></td></tr>
+                        <tr><th><label for="rbrt-digest-endpoint"><?php echo esc_html__('Endpoint', 'rbrt-personalized-digest'); ?></label></th><td><input class="large-text code" id="rbrt-digest-endpoint" name="endpoint" type="url" value="<?php echo esc_attr($ai_settings['endpoint']); ?>" required><p class="description"><?php echo esc_html__('HTTPS endpoints only. Gemini endpoints may contain the {model} placeholder.', 'rbrt-personalized-digest'); ?></p></td></tr>
+                        <tr><th><label for="rbrt-digest-protocol"><?php echo esc_html__('Request format', 'rbrt-personalized-digest'); ?></label></th><td><select id="rbrt-digest-protocol" name="protocol"><?php foreach ($protocols as $key => $label) : ?><option value="<?php echo esc_attr($key); ?>" <?php selected($ai_settings['protocol'], $key); ?>><?php echo esc_html($label); ?></option><?php endforeach; ?></select><p class="description"><?php echo esc_html__('Choose the API format implemented by the endpoint, especially for custom gateways.', 'rbrt-personalized-digest'); ?></p></td></tr>
+                        <tr><th><label for="rbrt-digest-api-key"><?php echo esc_html__('API key', 'rbrt-personalized-digest'); ?></label></th><td><input class="regular-text" id="rbrt-digest-api-key" name="api_key" type="password" value="" autocomplete="new-password" placeholder="<?php echo esc_attr($summarizer->has_stored_api_key() ? __('Stored securely — leave blank to keep', 'rbrt-personalized-digest') : __('Enter API key', 'rbrt-personalized-digest')); ?>"><p class="description"><?php echo esc_html__('The saved key is encrypted using this WordPress site’s secret salts and is never displayed again.', 'rbrt-personalized-digest'); ?></p><?php if ($summarizer->has_stored_api_key()) : ?><label><input type="checkbox" name="remove_api_key" value="1"> <?php echo esc_html__('Remove the stored API key', 'rbrt-personalized-digest'); ?></label><?php endif; ?></td></tr>
+                    </table>
+                    <?php submit_button(__('Save AI settings', 'rbrt-personalized-digest')); ?>
+                </form>
+                <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>">
+                    <input type="hidden" name="action" value="rbrt_digest_test_ai">
+                    <?php wp_nonce_field('rbrt_digest_test_ai'); ?>
+                    <?php submit_button(__('Test saved connection', 'rbrt-personalized-digest'), 'secondary', 'submit', false); ?>
+                    <span style="margin-left:8px;"><?php echo $summarizer->is_configured() ? esc_html__('Configured', 'rbrt-personalized-digest') : esc_html__('Not configured — manual runs use a deterministic fallback draft', 'rbrt-personalized-digest'); ?></span>
+                </form>
+                <script>(function(){var p=document.getElementById('rbrt-digest-provider');p.addEventListener('change',function(){var o=p.options[p.selectedIndex];document.getElementById('rbrt-digest-model').value=o.dataset.model||'';document.getElementById('rbrt-digest-endpoint').value=o.dataset.endpoint||'';document.getElementById('rbrt-digest-protocol').value=o.dataset.protocol||'openai_chat';});}());</script>
+            <?php else : ?>
+                <p><?php echo esc_html__('Only a site administrator can view or change AI provider credentials.', 'rbrt-personalized-digest'); ?></p>
+            <?php endif; ?>
+            <table class="widefat striped" style="max-width:760px;margin:18px 0;"><tbody>
+                <tr><th><?php echo esc_html__('Active provider', 'rbrt-personalized-digest'); ?></th><td><?php echo esc_html($providers[$ai_settings['provider']]['label'] . ' / ' . $ai_settings['model']); ?></td></tr>
+                <tr><th><?php echo esc_html__('Scheduled processing', 'rbrt-personalized-digest'); ?></th><td><?php echo esc_html__('Daily, in small batches; skipped until the provider is configured.', 'rbrt-personalized-digest'); ?></td></tr>
+            </tbody></table>
 
             <h2><?php echo esc_html__('Generate a member draft', 'rbrt-personalized-digest'); ?></h2>
             <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>">
@@ -119,6 +145,59 @@ final class RBRT_Personalized_Digest_Plugin {
         <?php
     }
 
+    public function handle_save_ai_settings() {
+        if (!current_user_can('manage_options')) {
+            wp_die(esc_html__('You do not have permission to change AI settings.', 'rbrt-personalized-digest'));
+        }
+        check_admin_referer('rbrt_digest_save_ai_settings');
+
+        $providers = RBRT_Digest_AI_Summarizer::providers();
+        $protocols = RBRT_Digest_AI_Summarizer::protocols();
+        $provider = isset($_POST['provider']) ? sanitize_key(wp_unslash($_POST['provider'])) : '';
+        $protocol = isset($_POST['protocol']) ? sanitize_key(wp_unslash($_POST['protocol'])) : '';
+        $model = isset($_POST['model']) ? sanitize_text_field(wp_unslash($_POST['model'])) : '';
+        $endpoint = isset($_POST['endpoint']) ? esc_url_raw(wp_unslash($_POST['endpoint'])) : '';
+        $scheme = strtolower((string) wp_parse_url($endpoint, PHP_URL_SCHEME));
+
+        if (!isset($providers[$provider]) || !isset($protocols[$protocol]) || $model === '' || $endpoint === '' || ($scheme !== 'https' && !apply_filters('rbrt_digest_allow_insecure_ai_endpoint', false, $endpoint))) {
+            $this->redirect_with_notice('settings_invalid');
+        }
+
+        update_option(RBRT_Digest_AI_Summarizer::OPTION_PROVIDER, $provider, false);
+        update_option(RBRT_Digest_AI_Summarizer::OPTION_MODEL, $model, false);
+        update_option(RBRT_Digest_AI_Summarizer::OPTION_ENDPOINT, $endpoint, false);
+        update_option(RBRT_Digest_AI_Summarizer::OPTION_PROTOCOL, $protocol, false);
+
+        $summarizer = new RBRT_Digest_AI_Summarizer();
+        if (!empty($_POST['remove_api_key'])) {
+            $summarizer->delete_api_key();
+        } elseif (isset($_POST['api_key']) && trim((string) wp_unslash($_POST['api_key'])) !== '') {
+            $stored = $summarizer->store_api_key(wp_unslash($_POST['api_key']));
+            if (is_wp_error($stored)) {
+                $this->redirect_with_notice('settings_error');
+            }
+        }
+        $this->redirect_with_notice('settings_saved');
+    }
+
+    public function handle_test_ai() {
+        if (!current_user_can('manage_options')) {
+            wp_die(esc_html__('You do not have permission to test AI settings.', 'rbrt-personalized-digest'));
+        }
+        check_admin_referer('rbrt_digest_test_ai');
+        $item = array(
+            'key' => 'connection-test',
+            'source' => 'forum_topic',
+            'score' => 100,
+            'title' => 'RBRT connection test',
+            'author' => 'RBRT',
+            'occurred_gmt' => gmdate('Y-m-d H:i:s'),
+            'content' => 'A short community technology update used only to verify the configured AI provider.',
+        );
+        $result = (new RBRT_Digest_AI_Summarizer())->summarize((object) array('ID' => get_current_user_id(), 'display_name' => 'RBRT administrator'), array('technology'), array($item));
+        $this->redirect_with_notice(is_wp_error($result) ? 'connection_error' : 'connection_ok');
+    }
+
     public function handle_generate_member() {
         if (!current_user_can('list_users')) {
             wp_die(esc_html__('You do not have permission to generate personalized digests.', 'rbrt-personalized-digest'));
@@ -139,7 +218,7 @@ final class RBRT_Personalized_Digest_Plugin {
     }
 
     public function start_daily_batches() {
-        $summarizer = new RBRT_Digest_Ollama_Summarizer();
+        $summarizer = new RBRT_Digest_AI_Summarizer();
         if (!$summarizer->is_configured()) {
             return;
         }
@@ -156,7 +235,7 @@ final class RBRT_Personalized_Digest_Plugin {
         }
         set_transient('_rbrt_digest_batch_lock', 1, 5 * MINUTE_IN_SECONDS);
 
-        $summarizer = new RBRT_Digest_Ollama_Summarizer();
+        $summarizer = new RBRT_Digest_AI_Summarizer();
         if (!$summarizer->is_configured()) {
             delete_transient('_rbrt_digest_batch_lock');
             return;
@@ -216,7 +295,13 @@ final class RBRT_Personalized_Digest_Plugin {
     }
 
     private function service() {
-        return new RBRT_Digest_Service(new RBRT_Digest_WordPress_Repository(), new RBRT_Digest_Ollama_Summarizer());
+        return new RBRT_Digest_Service(new RBRT_Digest_WordPress_Repository(), new RBRT_Digest_AI_Summarizer());
+    }
+
+    private function redirect_with_notice($notice) {
+        $url = add_query_arg('rbrt_digest_notice', sanitize_key($notice), admin_url('users.php?page=rbrt-personalized-digests'));
+        wp_safe_redirect($url);
+        exit;
     }
 
     private function notice_text($notice) {
@@ -227,6 +312,11 @@ final class RBRT_Personalized_Digest_Plugin {
             'no_updates' => __('No unread updates were found. The watermark advanced.', 'rbrt-personalized-digest'),
             'no_relevant_updates' => __('Unread updates were found but none matched the member interests. The watermark advanced.', 'rbrt-personalized-digest'),
             'error' => __('The digest could not be created. The watermark was not advanced.', 'rbrt-personalized-digest'),
+            'settings_saved' => __('AI provider settings were saved. A blank key field kept the existing key.', 'rbrt-personalized-digest'),
+            'settings_invalid' => __('The AI settings were not saved. Choose a supported provider and request format, enter a model, and use an HTTPS endpoint.', 'rbrt-personalized-digest'),
+            'settings_error' => __('The settings were saved, but the API key could not be encrypted. The existing key was not exposed.', 'rbrt-personalized-digest'),
+            'connection_ok' => __('The saved AI provider connection completed successfully.', 'rbrt-personalized-digest'),
+            'connection_error' => __('The saved AI provider connection test failed. Check the provider, model, endpoint, request format, and key.', 'rbrt-personalized-digest'),
         );
         return isset($messages[$notice]) ? $messages[$notice] : __('Digest generation finished.', 'rbrt-personalized-digest');
     }

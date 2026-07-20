@@ -1,7 +1,7 @@
 # E4-US1 Personalized Digest — Implementation and Verification
 
 Date: 2026-07-20
-Plugin: `RBRT Personalized Digest` v1.1.0
+Plugin: `RBRT Personalized Digest` v1.2.1
 Master source: `wordpress-plugin/rbrt-personalized-digest/`
 
 ## Outcome
@@ -32,10 +32,11 @@ Members with no declared interests do not receive a generic information dump. Th
 
 ## LLM and privacy behavior
 
-- Ollama Cloud generate API with a strict JSON schema and non-streaming output.
-- Configured through `OLLAMA_API_KEY` or `RBRT_DIGEST_OLLAMA_API_KEY`; no key is committed or stored in plugin source.
-- Default model `kimi-k2.6`, overridable through `OLLAMA_MODEL`, `RBRT_DIGEST_OLLAMA_MODEL`, or filters.
-- Bearer-authenticated direct access to `https://ollama.com/api/generate`.
+- Administrator-managed settings support Ollama Cloud, OpenAI, Anthropic, Google Gemini, xAI/Grok, and custom HTTPS endpoints.
+- Provider, model, endpoint, and request format are editable without changing plugin source. Built-in request formats cover Ollama generate, OpenAI Responses, OpenAI-compatible Chat Completions, Anthropic Messages, and Gemini generateContent.
+- API keys can be added, replaced, retained by leaving the password field blank, or removed. A saved key is authenticated-encrypted using the WordPress site's secret salts, stored in a non-autoloaded WordPress option, and never rendered back into the admin page.
+- Provider-specific environment variables remain optional overrides, but no key is committed or stored in plugin source.
+- Ollama Cloud defaults to `kimi-k2.6` and `https://ollama.com/api/generate`; every default can be changed in WordPress settings.
 - Authenticated local smoke verification passed with `kimi-k2.6`. Because this thinking-capable model wraps otherwise valid structured output in a JSON code fence, the request disables thinking and the parser removes only the outer fence before strict JSON and item-key validation.
 - Member names and email addresses are not included in the request.
 - Community content is explicitly treated as untrusted data, not model instructions.
@@ -54,7 +55,7 @@ The plugin renders final HTML itself. This guarantees the three source headings 
 
 ## Automation
 
-A daily WordPress Cron event starts batched processing for approved PWork members. Batches default to ten members and continue through single follow-up events. Automated runs are skipped until an Ollama Cloud key is configured.
+A daily WordPress Cron event starts batched processing for approved PWork members. Batches default to ten members and continue through single follow-up events. Automated runs are skipped until the selected provider, model, endpoint, and key are configured.
 
 ## Automated verification
 
@@ -72,25 +73,36 @@ A daily WordPress Cron event starts batched processing for approved PWork member
 - no watermark advancement after draft insertion failure;
 - real `rbrt_digest` + `post_status=draft` insertion arguments.
 
-`tests/e4-us1-personalized-digest.test.js` protects the WordPress/PWork/Ollama Cloud integration contract. On 2026-07-20 both E4 suites and all existing E3/dashboard/event regression suites passed. PHP 8.3 lint passed for every plugin and E4 test file.
+`tests/e4-us1-personalized-digest.test.js` protects the WordPress/PWork/provider integration contract, administrator/nonce controls, supported provider adapters, encrypted non-autoloaded secret storage, key replacement/removal, and connection testing. On 2026-07-20 both E4 suites passed and PHP 8.3 lint passed for every plugin and E4 test file.
 
 ## Staging verification
 
-The current branch was packaged as the unique-folder v1.1.0 build and activated on `https://domain1.badev.tools` on 2026-07-20. The earlier v1.0.0 copy is inactive, exactly one Personalized Digest copy is active, and production was not touched. The live Users → Personalized Digests page shows the Ollama Cloud configuration contract (`OLLAMA_API_KEY` / `RBRT_DIGEST_OLLAMA_API_KEY`), the existing source-count and item metadata, and no PHP or activation error. Staging PHP does not yet expose the Ollama secret, so the live page correctly reports Not configured and scheduled model generation remains disabled.
+The current branch was packaged as the unique-folder v1.2.1 build and activated on `https://domain1.badev.tools` on 2026-07-20. The v1.0.0, v1.1.0, and v1.2.0 copies are inactive, exactly one Personalized Digest copy is active, and production was not touched.
+
+The live **Users → Personalized Digests** page now provides:
+
+- provider choices for Ollama Cloud, OpenAI, Anthropic, Google Gemini, xAI/Grok, and a custom endpoint;
+- editable model, HTTPS endpoint, and request-format controls;
+- a blank password field that retains the existing encrypted key, replaces it when a new value is entered, or removes it through an explicit checkbox;
+- a saved-connection test protected by administrator capability and a WordPress nonce.
+
+The locally ignored `.env` Ollama key was entered through the staging settings form rather than added to source. After saving, staging reported `Configured`, the password field value remained empty, the placeholder reported that a key was stored, and the removal control was available. The built-in live connection test completed successfully with Ollama Cloud and `kimi-k2.6`.
+
+The first v1.2.0 connection test revealed that Kimi can return otherwise valid keyed results under a top-level `summaries` array even when the supplied schema names the array `items`. A direct authenticated request reproduced this response shape without exposing the credential. v1.2.1 normalizes that alias before the existing strict item-key validation; automated tests protect this compatibility behavior.
 
 The earlier v1.0.0 staging pass established the WordPress/PWork collection and fallback behavior below:
 
-- Users → Personalized Digests loaded for the staging administrator, showed approved RBRT accounts, and reported that the previous OpenAI configuration was not present. The pending Ollama build will report `OLLAMA_API_KEY`/`RBRT_DIGEST_OLLAMA_API_KEY` instead.
+- Users → Personalized Digests loaded for the staging administrator and showed approved RBRT accounts.
 - A controlled 365-day first run for Cosmin-Gabriel (user 679) queried live RBRT data and created WordPress draft 463. Its stored window was `2025-07-20 09:37:38` through `2026-07-20 09:37:38` UTC.
 - The interest-ranked draft contained 12 items: 3 forum topics, 3 forum replies, and 6 approved directory updates. The editor showed the required `Forum topics`, `Forum replies`, and `Directory updates` headings with staging links.
 - The draft remained in WordPress `draft` status and recorded 12 immutable item keys, the source counts, UTC window, member, interests, and `fallback` generation status. Nothing was published or sent.
 - The first immediate repeat exposed a legacy-data defect: an empty `rbrt_profile_updated_at` value was parsed as the current time, allowing six profiles to recur. `normalize_datetime()` now returns an empty value for empty input, and an automated regression test protects this case.
 - The corrected package was installed over the staging copy while keeping the plugin active. A repeat run then returned `No unread updates were found`, created no additional draft, and advanced the watermark to close the checked window. The invalid repeat test draft was moved to the WordPress Bin (recoverable), leaving one valid staging draft.
-- Live Ollama Cloud generation inside staging WordPress remains pending until its key is securely exposed to staging PHP. Direct authenticated `kimi-k2.6` generation and structured-output parsing were verified locally; the live WordPress behavior verified so far is the deterministic fallback path. Automated tests cover both model success and LLM failure.
+- Live Ollama Cloud connectivity from staging WordPress is verified. Automated tests cover both model success and LLM failure; the earlier deterministic fallback draft remains as evidence of the safe failure path.
 
-Staging package: `rbrt-personalized-digest-v1.1.0.zip`
-SHA-256: `7163F9CBC3FFEC6159E67826DA308C7EEE6DE052760F9E4D713E1D0FF30BCF74`
+Staging package: `rbrt-personalized-digest-v1.2.1.zip`
+SHA-256: `BA5A004B46B65FE55F2347B2A3663D6C68E680DBC76D3E570F7541DBC78347B6`
 
 ## Pull-request status
 
-The workspace's `.git` directory is empty, so there is currently no local history, branch, or remote from which to create a truthful reviewed pull request. Source, tests, package, and staging evidence can be completed here; PR creation requires reconnecting this workspace to the intended Git repository or supplying a writable GitHub target.
+The work is on branch `agent/e4-us1-wordpress-digest` and the draft pull request is [afsana0123/-Personalized-Digest-System#1](https://github.com/afsana0123/-Personalized-Digest-System/pull/1). Staging evidence and final automated verification are documented here for review.

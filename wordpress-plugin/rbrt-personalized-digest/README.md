@@ -14,23 +14,15 @@ The exclusive lower/inclusive upper UTC window is stored in user meta `_rbrt_dig
 
 On the first run, the default lookback is seven days. Administrators can choose up to 365 days for a member's first manual run.
 
-## Ollama Cloud configuration
+## AI provider configuration
 
-Set the key outside the plugin. The plugin accepts the server environment variable `OLLAMA_API_KEY` or a WordPress constant in `wp-config.php`:
+Go to **Users → Personalized Digests** as a site administrator. Select Ollama Cloud, OpenAI, Anthropic, Google Gemini, xAI/Grok, or Custom endpoint, then edit the model, HTTPS endpoint, and request format as needed.
 
-```php
-define('RBRT_DIGEST_OLLAMA_API_KEY', '...');
-```
+The password field never displays the current key. Leave it blank to retain the saved key, enter a value to replace it, or select the removal checkbox to delete it. Saved keys are authenticated-encrypted using the WordPress site's secret salts and stored in a non-autoloaded option. Changing the site's salts requires the key to be entered again.
 
-A local `.env` file is ignored by Git and is useful for deployment tooling, but WordPress must expose the value to PHP as an environment variable or constant; the plugin does not parse repository files at runtime.
+Provider-specific environment variables (`OLLAMA_API_KEY`, `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GEMINI_API_KEY`, and `XAI_API_KEY`) are optional deployment overrides. The plugin does not read repository `.env` files and no credentials belong in source or Git.
 
-The default model is `kimi-k2.6`. Override it without changing plugin code:
-
-```php
-define('RBRT_DIGEST_OLLAMA_MODEL', 'your-approved-model');
-```
-
-The integration uses `POST https://ollama.com/api/generate` with Bearer authentication, non-streaming responses, and a JSON schema in `format`. Only selected public/community excerpts, declared interests, source type, timestamps, and relevance scores are sent. The member's name and email are not sent.
+Only selected public/community excerpts, declared interests, source type, timestamps, and relevance scores are sent. The member's name and email are not sent.
 
 If the API is missing, unavailable, or returns invalid output, a deterministic source-excerpt draft is created for administrator review. Scheduled generation is skipped until the API key is configured, preventing automated fallback-draft floods.
 
@@ -43,8 +35,8 @@ If the API is missing, unavailable, or returns invalid output, a deterministic s
 
 Useful filters:
 
-- `rbrt_digest_ollama_api_key`
-- `rbrt_digest_ollama_model`
+- `rbrt_digest_ai_api_key`
+- `rbrt_digest_allow_insecure_ai_endpoint` (disabled by default; intended only for controlled local development)
 - `rbrt_digest_max_items`
 - `rbrt_digest_batch_size`
 - `rbrt_digest_material_profile_meta_keys`
@@ -59,4 +51,4 @@ php tests/e4-us1-personalized-digest.php
 node tests/e4-us1-personalized-digest.test.js
 ```
 
-The PHP suite covers unread window boundaries, interest filtering, short-term matching, deduplication, all three collectors, LLM failure, watermark safety, and WordPress draft creation. The Node contract suite protects the PWork schema, privacy, Ollama Cloud, and draft-storage integration points.
+The PHP suite covers unread window boundaries, interest filtering, short-term matching, deduplication, all three collectors, LLM failure, watermark safety, WordPress draft creation, and secret-setting behavior. The Node contract suite protects the PWork schema, privacy, provider adapters, administrator controls, encrypted secret storage, and draft-storage integration points.

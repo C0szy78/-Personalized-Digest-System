@@ -24,10 +24,14 @@ function esc_html($text) { return htmlspecialchars((string) $text, ENT_QUOTES, '
 function esc_url($url) { return (string) $url; }
 function wp_kses_post($html) { return (string) $html; }
 function sanitize_key($key) { return preg_replace('/[^a-z0-9_\-]/', '', strtolower((string) $key)); }
+function sanitize_text_field($text) { return trim(strip_tags((string) $text)); }
 function apply_filters($hook, $value) { return $value; }
 function current_time($type, $gmt = false) { return '2026-07-20 12:00:00'; }
 function get_date_from_gmt($date, $format) { return substr($date, 0, 10); }
-function get_option($key, $default = false) { return $key === 'date_format' ? 'Y-m-d' : $default; }
+function get_option($key, $default = false) { return $key === 'date_format' ? 'Y-m-d' : (array_key_exists($key, $GLOBALS['rbrt_test_options'] ?? array()) ? $GLOBALS['rbrt_test_options'][$key] : $default); }
+function update_option($key, $value, $autoload = null) { $GLOBALS['rbrt_test_options'][$key] = $value; $GLOBALS['rbrt_test_autoload'][$key] = $autoload; return true; }
+function delete_option($key) { unset($GLOBALS['rbrt_test_options'][$key]); return true; }
+function wp_salt($scheme = 'auth') { return 'test-only-wordpress-salt'; }
 function wp_insert_post($postarr, $wp_error = false) {
     $GLOBALS['rbrt_test_inserted_post'] = $postarr;
     return 321;
@@ -36,7 +40,7 @@ function wp_insert_post($postarr, $wp_error = false) {
 require_once __DIR__ . '/../wordpress-plugin/rbrt-personalized-digest/includes/class-rbrt-digest-core.php';
 require_once __DIR__ . '/../wordpress-plugin/rbrt-personalized-digest/includes/class-rbrt-digest-wordpress-repository.php';
 require_once __DIR__ . '/../wordpress-plugin/rbrt-personalized-digest/includes/class-rbrt-digest-service.php';
-require_once __DIR__ . '/../wordpress-plugin/rbrt-personalized-digest/includes/class-rbrt-digest-ollama-summarizer.php';
+require_once __DIR__ . '/../wordpress-plugin/rbrt-personalized-digest/includes/class-rbrt-digest-ai-summarizer.php';
 
 function assert_true($condition, $message) {
     if (!$condition) {
@@ -63,13 +67,21 @@ assert_true(RBRT_Digest_Core::in_window('2026-07-20 12:00:00', '2026-07-20 10:00
 assert_true(!RBRT_Digest_Core::in_window('2026-07-20 12:00:01', '2026-07-20 10:00:00', '2026-07-20 12:00:00'), 'items after window end must be excluded');
 assert_true(RBRT_Digest_Core::normalize_datetime('') === '', 'missing profile timestamps must remain empty rather than becoming the current time');
 
-$ollama = new RBRT_Digest_Ollama_Summarizer();
-$clean_json = new ReflectionMethod($ollama, 'clean_json_output');
+$summarizer = new RBRT_Digest_AI_Summarizer();
+$clean_json = new ReflectionMethod($summarizer, 'clean_json_output');
 $clean_json->setAccessible(true);
 assert_true(
-    $clean_json->invoke($ollama, "```json\n{\"status\":\"connected\"}\n```") === '{"status":"connected"}',
+    $clean_json->invoke($summarizer, "```json\n{\"status\":\"connected\"}\n```") === '{"status":"connected"}',
     'Kimi JSON code fences must be removed before strict decoding'
 );
+if (function_exists('sodium_crypto_secretbox') || function_exists('openssl_encrypt')) {
+    $summarizer->store_api_key('secret-value-used-only-by-test');
+    assert_true($summarizer->has_stored_api_key(), 'an encrypted API key must be stored in WordPress settings');
+    assert_true(strpos($GLOBALS['rbrt_test_options'][RBRT_Digest_AI_Summarizer::OPTION_API_KEY], 'secret-value-used-only-by-test') === false, 'the stored option must not contain the plaintext API key');
+    assert_true($GLOBALS['rbrt_test_autoload'][RBRT_Digest_AI_Summarizer::OPTION_API_KEY] === false, 'the encrypted API key option must not autoload');
+    $summarizer->delete_api_key();
+    assert_true(!$summarizer->has_stored_api_key(), 'the stored API key must be removable');
+}
 
 $terms = RBRT_Digest_Core::normalize_terms(array('AI, Technology', 'Business; AI'));
 assert_true($terms === array('ai', 'technology', 'business'), 'interest terms must split, normalize, and deduplicate');
